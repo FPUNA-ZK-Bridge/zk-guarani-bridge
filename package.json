@@ -1,0 +1,31 @@
+{
+  "name": "guarani-bridge",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "node:n1": "hardhat node --port 8545",
+    "node:n2": "anvil -p 9545 --chain-id 1338",
+    "compile": "hardhat compile",
+    "deploy:n1": "hardhat run scripts/deployN1.js --network $(node scripts/resolve-network.js n1)",
+    "deploy:n2": "hardhat run scripts/deployN2.js --network $(node scripts/resolve-network.js n2)",
+    "config": "node scripts/generate-config.js",
+    "relayer": "node relayer/relayer.js",
+    "frontend": "npx serve public",
+    "test": "hardhat test --network localL1",
+    "test:bridge": "hardhat test test/Bridge.test.js --network localL1",
+    "test:infra": "hardhat test test/Infrastructure.test.js --network localL1",
+    "test:diagnostic": "hardhat test test/NetworkDiagnostic.test.js",
+    "test:all": "hardhat test test/Bridge.test.js test/Infrastructure.test.js --network localL1"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^3.0.0",
+    "hardhat": "^2.22.2"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^5.0.2",
+    "dotenv": "^16.4.1",
+    "ethers": "^6.15.0",
+    "snarkjs": "^0.7.6"
+  }
+}

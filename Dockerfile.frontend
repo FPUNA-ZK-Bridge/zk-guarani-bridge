@@ -1,0 +1,16 @@
+# Frontend Dockerfile
+FROM node:24.9.0-alpine
+
+WORKDIR /app
+
+# Instalar serve globalmente para servir archivos estáticos
+RUN npm install -g serve
+
+# Copiar archivos públicos
+COPY public/ ./public/
+
+# Exponer puerto
+EXPOSE 3000
+
+# Servir archivos estáticos
+CMD ["serve", "-s", "public", "-l", "3000"]

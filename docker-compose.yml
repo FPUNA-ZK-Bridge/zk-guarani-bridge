@@ -1,0 +1,114 @@
+services:
+  # L1 Network - Hardhat
+  hardhat-n1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: guarani-hardhat-n1
+    command: npm run node:n1
+    ports:
+      - "8545:8545"
+    networks:
+      - guarani-network
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - ./contracts:/app/contracts
+      - ./scripts:/app/scripts
+      - hardhat-cache:/app/cache
+      - hardhat-artifacts:/app/artifacts
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8545"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # L2 Network - Anvil
+  anvil-n2:
+    build:
+      context: .
+      dockerfile: Dockerfile.anvil
+    container_name: guarani-anvil-n2
+    ports:
+      - "9545:9545"
+    networks:
+      - guarani-network
+    environment:
+      - RUST_LOG=info
+    volumes:
+      - ./contracts:/app/contracts
+      - ./scripts:/app/scripts
+    depends_on:
+      hardhat-n1:
+        condition: service_healthy
+
+  # Relayer Service
+  relayer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: guarani-relayer
+    command: npm run relayer
+    networks:
+      - guarani-network
+    environment:
+      - NODE_ENV=production
+      - BRIDGE_ENV=local
+      - RPC_URL_N1=http://hardhat-n1:8545
+      - RPC_URL_N2=http://anvil-n2:9545
+      - NODE_OPTIONS=--max-old-space-size=2048
+    volumes:
+      - ./relayer:/app/relayer
+      - ./scripts:/app/scripts
+      - ./utils:/app/utils
+      - ./deploy-N1.json:/app/deploy-N1.json:ro
+      - ./deploy-N2.json:/app/deploy-N2.json:ro
+    depends_on:
+      - hardhat-n1
+      - anvil-n2
+
+  # Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: guarani-frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - guarani-network
+    volumes:
+      - ./public:/app/public
+    depends_on:
+      - hardhat-n1
+
+  # Deployment Helper - runs deployment scripts
+  deployer:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: guarani-deployer
+    command: /bin/bash
+    stdin_open: true
+    tty: true
+    networks:
+      - guarani-network
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - hardhat-n1
+      - anvil-n2
+    profiles:
+      - deployer
+
+networks:
+  guarani-network:
+    driver: bridge
+
+volumes:
+  hardhat-cache:
+  hardhat-artifacts:

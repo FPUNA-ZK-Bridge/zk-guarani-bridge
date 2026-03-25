@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="utf-8" />
+  <title>GuaraniToken Bridge</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#f0f5ff', 100:'#e0eaff', 200:'#c2d5ff', 400:'#6d9eff', 500:'#4f7df9', 600:'#3b5fe0', 700:'#2d46b9', 800:'#1e2f7a', 900:'#101b4d' },
+            l1: { light:'#dbeafe', DEFAULT:'#3b82f6', dark:'#1e40af' },
+            l2: { light:'#d1fae5', DEFAULT:'#10b981', dark:'#065f46' },
+          },
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          animation: { 'pulse-slow': 'pulse 3s cubic-bezier(0.4,0,0.6,1) infinite' },
+        }
+      }
+    }
+  </script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+
+  <!-- Ethers v6 -->
+  <script src="https://unpkg.com/ethers@6.11.1/dist/ethers.umd.min.js"></script>
+
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; }
+    .bridge-arrow { animation: floatArrow 2s ease-in-out infinite; }
+    @keyframes floatArrow { 0%,100%{ transform:translateX(0); } 50%{ transform:translateX(8px); } }
+    .log-box::-webkit-scrollbar { width:6px; }
+    .log-box::-webkit-scrollbar-thumb { background:#4f7df9; border-radius:3px; }
+    .glass { backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+  </style>
+</head>
+
+<body class="min-h-screen bg-gradient-to-br from-brand-900 via-brand-800 to-brand-900 text-white">
+
+  <!-- ───── Header ───── -->
+  <header class="w-full border-b border-white/10 glass bg-white/5">
+    <div class="max-w-6xl mx-auto flex items-center justify-between px-6 py-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-brand-500 to-l2 flex items-center justify-center text-lg font-bold">G</div>
+        <div>
+          <h1 id="page-title" class="text-lg font-semibold leading-tight">GuaraniToken Bridge</h1>
+          <p class="text-xs text-white/50" id="subtitle">Connecting chains securely</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-white/10 border border-white/10">
+          <span class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+          <span id="header-status">Initializing</span>
+        </span>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+    <!-- ───── Bridge Card ───── -->
+    <section class="max-w-lg mx-auto">
+      <div class="rounded-2xl bg-white/[0.07] border border-white/10 glass overflow-hidden">
+        <!-- Card header -->
+        <div class="px-6 pt-6 pb-4 border-b border-white/10">
+          <div class="flex items-center gap-3">
+            <svg class="w-5 h-5 text-brand-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/></svg>
+            <h2 class="text-base font-semibold">Bridge Tokens</h2>
+          </div>
+          <p class="mt-1 text-xs text-white/40">Lock GUA on N1 and receive on N2</p>
+        </div>
+
+        <!-- Chain indicators -->
+        <div class="flex items-center justify-center gap-4 py-4 px-6">
+          <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-l1/20 border border-l1/30 text-sm font-medium text-l1-light">
+            <span class="w-2 h-2 rounded-full bg-l1"></span>
+            N1
+          </div>
+          <div class="bridge-arrow text-white/40">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+          </div>
+          <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-l2/20 border border-l2/30 text-sm font-medium text-l2-light">
+            <span class="w-2 h-2 rounded-full bg-l2"></span>
+            N2
+          </div>
+        </div>
+
+        <!-- Form -->
+        <div class="px-6 pb-6 space-y-4">
+          <div>
+            <label for="dest" class="block text-xs font-medium text-white/60 mb-1.5">Destination (N2 address)</label>
+            <input id="dest" placeholder="0x…" class="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition" />
+          </div>
+          <div>
+            <label for="amt" class="block text-xs font-medium text-white/60 mb-1.5">Amount (GUA)</label>
+            <input id="amt" type="number" value="10" step="0.0001" class="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition" />
+          </div>
+          <button id="btn-bridge" class="w-full py-3 rounded-lg bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-sm font-semibold tracking-wide transition-all duration-200 shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 active:scale-[0.98]">
+            BRIDGE &rarr;
+          </button>
+
+          <!-- Log console -->
+          <div class="mt-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <svg class="w-3.5 h-3.5 text-white/40" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span class="text-xs text-white/40 font-medium">Console</span>
+            </div>
+            <pre id="log" class="log-box h-36 overflow-auto rounded-lg bg-black/40 border border-white/5 p-3 text-xs font-mono text-green-400 whitespace-pre-wrap"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───── Contract Info ───── -->
+    <section>
+      <h2 class="text-center text-sm font-semibold text-white/50 uppercase tracking-wider mb-4">Deployed Contracts</h2>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- L1 -->
+        <div class="rounded-xl bg-white/[0.05] border border-l1/20 p-5">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-2.5 h-2.5 rounded-full bg-l1"></span>
+            <h3 id="l1-contracts-title" class="text-sm font-semibold text-l1-light">N1 Contracts</h3>
+          </div>
+          <div class="space-y-2 text-xs">
+            <div class="flex items-start gap-2">
+              <span class="text-white/40 shrink-0 w-14">Token:</span>
+              <span class="font-mono text-white/70 break-all" id="l1-token-addr">&mdash;</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-white/40 shrink-0 w-14">Sender:</span>
+              <span class="font-mono text-white/70 break-all" id="l1-sender-addr">&mdash;</span>
+            </div>
+          </div>
+        </div>
+        <!-- L2 -->
+        <div class="rounded-xl bg-white/[0.05] border border-l2/20 p-5">
+          <div class="flex items-center gap-2 mb-3">
+            <span class="w-2.5 h-2.5 rounded-full bg-l2"></span>
+            <h3 id="l2-contracts-title" class="text-sm font-semibold text-l2-light">N2 Contracts</h3>
+          </div>
+          <div class="space-y-2 text-xs">
+            <div class="flex items-start gap-2">
+              <span class="text-white/40 shrink-0 w-14">Token:</span>
+              <span class="font-mono text-white/70 break-all" id="l2-token-addr">&mdash;</span>
+            </div>
+            <div class="flex items-start gap-2">
+              <span class="text-white/40 shrink-0 w-14">Receiver:</span>
+              <span class="font-mono text-white/70 break-all" id="l2-receiver-addr">&mdash;</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ───── Balance Monitor ───── -->
+    <section>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-semibold text-white/50 uppercase tracking-wider">Balance Monitor</h2>
+        <button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-medium transition" onclick="updateAllBalances()">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Refresh
+        </button>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <!-- L1 Table -->
+        <div class="rounded-xl bg-white/[0.05] border border-l1/20 overflow-hidden">
+          <div class="px-5 py-3 border-b border-white/5 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-l1"></span>
+            <span id="l1-table-title" class="text-sm font-semibold text-l1-light">N1</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-white/40 border-b border-white/5">
+                  <th class="text-left px-5 py-2.5 font-medium">Address</th>
+                  <th class="text-right px-5 py-2.5 font-medium w-28">Native</th>
+                  <th class="text-right px-5 py-2.5 font-medium w-28">GUA</th>
+                </tr>
+              </thead>
+              <tbody id="l1-balances">
+                <tr><td colspan="3" class="px-5 py-4 text-center text-white/30">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- L2 Table -->
+        <div class="rounded-xl bg-white/[0.05] border border-l2/20 overflow-hidden">
+          <div class="px-5 py-3 border-b border-white/5 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-l2"></span>
+            <span id="l2-table-title" class="text-sm font-semibold text-l2-light">N2</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-white/40 border-b border-white/5">
+                  <th class="text-left px-5 py-2.5 font-medium">Address</th>
+                  <th class="text-right px-5 py-2.5 font-medium w-28">Native</th>
+                  <th class="text-right px-5 py-2.5 font-medium w-28">GUA</th>
+                </tr>
+              </thead>
+              <tbody id="l2-balances">
+                <tr><td colspan="3" class="px-5 py-4 text-center text-white/30">Loading...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ───── Footer ───── -->
+  <footer class="border-t border-white/5 mt-12">
+    <div class="max-w-6xl mx-auto px-6 py-6 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-white/30">
+      <span>GuaraniToken Bridge &mdash; Lock &amp; Mint</span>
+      <span>Powered by Ethers.js v6 &middot; Tailwind CSS</span>
+    </div>
+  </footer>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- JS Logic (preserves all existing behaviour)                            -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<script>
+(async () => {
+
+
+
+  /* ─── bridge-config.json ─── */
+  const cfg = await fetch("./bridge-config.json").then(r => r.json());
+
+  const setText = (id, value) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value ?? "\u2014";
+  };
+  const fmtChain = (c) => c?.chainIdHex ?? (c?.chainId ? ("0x" + Number(c.chainId).toString(16)) : null);
+
+  setText("page-title", `GuaraniToken Bridge (${cfg.mode ?? "unknown"})`);
+  setText("subtitle", `${cfg.mode ?? "network"} \u00b7 N1 chain ${cfg?.l1?.chainId ?? "?"} \u2192 N2 chain ${cfg?.l2?.chainId ?? "?"}`);
+  setText("l1-contracts-title", `N1 (${cfg.l1.network ?? "network"} \u00b7 ${cfg?.l1?.chainId ?? "?"})`);
+  setText("l2-contracts-title", `N2 (${cfg.l2.network ?? "network"} \u00b7 ${cfg?.l2?.chainId ?? "?"})`);
+  setText("l1-token-addr", cfg?.l1?.token);
+  setText("l1-sender-addr", cfg?.l1?.sender);
+  setText("l2-token-addr", cfg?.l2?.token);
+  setText("l2-receiver-addr", cfg?.l2?.receiver);
+  setText("l1-table-title", `N1 (Chain ${cfg?.l1?.chainId ?? "?"})`);
+  setText("l2-table-title", `N2 (Chain ${cfg?.l2?.chainId ?? "?"})`);
+
+  const CHAIN_L1 = fmtChain(cfg.l1);
+  const SENDER_L1 = cfg.l1.sender;
+  const TOKEN_L1 = cfg.l1.token;
+  const CONTRACT_L1 = cfg.l1.sender;
+  const TOKEN_L2 = cfg.l2.token;
+  const CONTRACT_L2 = cfg.l2.receiver;
+
+  if (!window.ethereum) return alert("Install MetaMask to use the bridge");
+
+  const log = (m) => {
+    const el = document.getElementById("log");
+    el.textContent += m + "\n"; el.scrollTop = el.scrollHeight;
+  };
+
+  /* ─── connect ─── */
+  let provider, signer;
+  try {
+    const accounts = await ethereum.request({ method: "eth_accounts" });
+    if (accounts.length === 0) {
+      await ethereum.request({ method: "eth_requestAccounts" });
+    }
+    provider = new ethers.BrowserProvider(ethereum);
+    signer = await provider.getSigner();
+    const { chainId } = await provider.getNetwork();
+    log(`Connected ${signer.address}  (chainId ${chainId})`);
+    setText("header-status", `${signer.address.slice(0,6)}...${signer.address.slice(-4)}`);
+  } catch (error) {
+    if (error.code === -32002) {
+      log("\u26a0\ufe0f MetaMask request already pending. Check MetaMask and refresh.");
+      return;
+    }
+    log(`\u274c Connection error: ${error.message}`);
+    return;
+  }
+
+  /* ─── switch chain ─── */
+  const switchTo = async (hexId) => {
+    const want = BigInt(parseInt(hexId, 16));
+    const now  = (await provider.getNetwork()).chainId;
+    if (now !== want) {
+      try {
+        await ethereum.request({ method:"wallet_switchEthereumChain", params:[{ chainId:hexId }] });
+      } catch (e) {
+        if (e.code === -32002) log("\u26a0\ufe0f MetaMask request already pending.");
+        else log("\u26a0\ufe0f Switch chain rejected");
+        throw e;
+      }
+    }
+  };
+
+  /* ─── ABIs ─── */
+  const abiToken = [
+    "constructor(uint256 initialSupply)",
+    "error AccessControlBadConfirmation()",
+    "error AccessControlUnauthorizedAccount(address account, bytes32 neededRole)",
+    "error ERC20InsufficientAllowance(address spender, uint256 allowance, uint256 needed)",
+    "error ERC20InsufficientBalance(address sender, uint256 balance, uint256 needed)",
+    "error ERC20InvalidApprover(address approver)",
+    "error ERC20InvalidReceiver(address receiver)",
+    "error ERC20InvalidSender(address sender)",
+    "error ERC20InvalidSpender(address spender)",
+    "event Approval(address indexed owner, address indexed spender, uint256 value)",
+    "event RoleAdminChanged(bytes32 indexed role, bytes32 indexed previousAdminRole, bytes32 indexed newAdminRole)",
+    "event RoleGranted(bytes32 indexed role, address indexed account, address indexed sender)",
+    "event RoleRevoked(bytes32 indexed role, address indexed account, address indexed sender)",
+    "event Transfer(address indexed from, address indexed to, uint256 value)",
+    "function DEFAULT_ADMIN_ROLE() view returns (bytes32)",
+    "function MINTER_ROLE() view returns (bytes32)",
+    "function allowance(address owner, address spender) view returns (uint256)",
+    "function approve(address spender, uint256 value) returns (bool)",
+    "function balanceOf(address account) view returns (uint256)",
+    "function decimals() view returns (uint8)",
+    "function getRoleAdmin(bytes32 role) view returns (bytes32)",
+    "function grantRole(bytes32 role, address account)",
+    "function hasRole(bytes32 role, address account) view returns (bool)",
+    "function mint(address to, uint256 amount)",
+    "function name() view returns (string)",
+    "function renounceRole(bytes32 role, address callerConfirmation)",
+    "function revokeRole(bytes32 role, address account)",
+    "function supportsInterface(bytes4 interfaceId) view returns (bool)",
+    "function symbol() view returns (string)",
+    "function totalSupply() view returns (uint256)",
+    "function transfer(address to, uint256 value) returns (bool)",
+    "function transferFrom(address from, address to, uint256 value) returns (bool)",
+  ];
+
+  const abiSender = [
+    "constructor(address _token)",
+    "event Locked(uint256 indexed id, address indexed from, address indexed to, uint256 amount)",
+    "function lock(address recipientL2, uint256 amount)",
+    "function lockedBalance() view returns (uint256)",
+    "function nonce() view returns (uint256)",
+    "function token() view returns (address)",
+  ];
+
+  const abiMinted = [
+    "constructor(address _token, address _relayer)",
+    "event Minted(uint256 indexed id, address indexed to, uint256 amount)",
+    "function mintRemote(uint256 id, address to, uint256 amount)",
+    "function processed(uint256) view returns (bool)",
+    "function relayer() view returns (address)",
+    "function token() view returns (address)",
+  ];
+
+  const token  = new ethers.Contract(TOKEN_L1, abiToken, signer);
+  const sender = new ethers.Contract(SENDER_L1, abiSender, signer);
+
+  /* ─── Bridge action ─── */
+  document.getElementById("btn-bridge").onclick = async () => {
+    try {
+      await switchTo(CHAIN_L1);
+
+      const dest   = document.getElementById("dest").value.trim();
+      const amount = ethers.parseUnits(document.getElementById("amt").value || "0", 18);
+      if (!ethers.isAddress(dest)) return alert("Invalid destination address");
+
+      const allow = await token.allowance(signer.address, SENDER_L1);
+      if (allow < amount) {
+        log("approve\u2026");
+        const tx = await token.approve(SENDER_L1, amount);
+        await tx.wait(2); log("approve ok");
+      }
+
+      // const proofOk = await verificarFinal();
+      // if (!proofOk) {
+      //   throw new Error("Proof inválido");
+      // }
+      // console.log("✅ Proof verificado OK");
+
+      log("lock\u2026");
+      const tx2 = await sender.lock(dest, amount);
+      await tx2.wait();
+      const idBN   = await sender.nonce();
+      const lockId = idBN - 1n;
+      log(`\u2705 Locked id ${lockId.toString()}, amount ${ethers.formatUnits(amount,18)} GUA`);
+      log("\ud83d\udd04 Waiting for relayer to mint on N2\u2026");
+
+    } catch (e) {
+      console.error("Bridge error:", e);
+      let errorMsg = "Unknown error";
+      if (e.message?.includes("nonce")) errorMsg = "Nonce error. Please try again.";
+      else if (e.message?.includes("insufficient funds")) errorMsg = "Insufficient funds";
+      else if (e.message?.includes("allowance")) errorMsg = "Allowance error";
+      else if (e.code === "ACTION_REJECTED") errorMsg = "Transaction rejected by user";
+      else if (e.message?.includes("Internal JSON-RPC error")) errorMsg = "Node error. Check token balance.";
+      else errorMsg = e?.info?.error?.message || e.shortMessage || e.message;
+      log("\u274c " + errorMsg);
+    }
+  };
+
+  /* ─── RPC normalization for browser ─── */
+  const normalizeRpcForBrowser = (rpc) => {
+    if (!rpc) return null;
+    try {
+      const u = new URL(rpc);
+      const loopbacks = new Set(["127.0.0.1", "localhost", "0.0.0.0"]);
+      if (u.hostname === "hardhat-n1") {
+        u.hostname = window.location.hostname;
+        if (u.port === "8545") u.port = "8546";
+      } else if (u.hostname === "anvil-n2") {
+        u.hostname = window.location.hostname;
+      } else if (loopbacks.has(u.hostname) && window.location.hostname && !loopbacks.has(window.location.hostname)) {
+        u.hostname = window.location.hostname;
+      }
+      return u.toString().replace(/\/$/, "");
+    } catch { return rpc; }
+  };
+
+  const rpcL1 = normalizeRpcForBrowser(cfg?.l1?.rpc);
+  const rpcL2 = normalizeRpcForBrowser(cfg?.l2?.rpc);
+
+  const providerL1 = rpcL1 ? new ethers.JsonRpcProvider(rpcL1) : null;
+  const providerL2 = rpcL2 ? new ethers.JsonRpcProvider(rpcL2) : null;
+
+  const tokenL1 = (providerL1 && TOKEN_L1) ? new ethers.Contract(TOKEN_L1, abiToken, providerL1) : null;
+  const tokenL2 = (providerL2 && TOKEN_L2) ? new ethers.Contract(TOKEN_L2, abiToken, providerL2) : null;
+
+  const contractL2 = (providerL2 && CONTRACT_L2) ? new ethers.Contract(CONTRACT_L2, abiMinted, providerL2) : null;
+
+  if (contractL2) {
+    contractL2.on("Minted", (to, amount, lockId) => {
+      log(`\ud83c\udf89 Minted: to=${to}, amount=${ethers.formatUnits(amount,18)} GUA, lockId=${lockId}`);
+    });
+  } else {
+    log("\u2139\ufe0f N2 listener disabled (cfg.l2.rpc or cfg.l2.receiver is empty).");
+  }
+
+  /* ─── Balance Monitor ─── */
+  const accounts = cfg.monitorAccounts?.length ? cfg.monitorAccounts : [signer.address];
+
+  async function updateBalanceTable(networkId, prov, tokenContract, accountsList) {
+    const tableBody = document.getElementById(`${networkId}-balances`);
+    if (!tableBody) return;
+    tableBody.innerHTML = '';
+
+    if (!prov || !tokenContract) {
+      tableBody.innerHTML = `<tr><td colspan="3" class="px-5 py-4 text-center text-white/30">
+        Incomplete config for ${networkId.toUpperCase()} (missing rpc or addresses in bridge-config.json)
+      </td></tr>`;
+      return;
+    }
+
+    for (const account of accountsList) {
+      try {
+        await prov.getBlockNumber();
+        const ethBalance = await prov.getBalance(account);
+        const ethFmt = parseFloat(ethers.formatEther(ethBalance)).toFixed(4);
+        const tokenBalance = await tokenContract.balanceOf(account);
+        const guaFmt = parseFloat(ethers.formatUnits(tokenBalance, 18)).toFixed(2);
+
+        const row = document.createElement('tr');
+        row.className = 'border-t border-white/5 hover:bg-white/[0.03] transition';
+        row.innerHTML = `
+          <td class="px-5 py-2.5 font-mono text-white/60">${account.slice(0,6)}\u2026${account.slice(-4)}</td>
+          <td class="px-5 py-2.5 text-right text-white/80 font-medium">${ethFmt}</td>
+          <td class="px-5 py-2.5 text-right font-semibold text-brand-400">${guaFmt}</td>
+        `;
+        tableBody.appendChild(row);
+      } catch (error) {
+        console.error(`Error fetching balance for ${account}:`, error);
+        let errorMsg = "Error";
+        if (error.message?.includes("could not decode result data")) errorMsg = "Contract not found";
+        else if (error.message?.includes("network")) errorMsg = "Network error";
+        else if (error.code === 'NETWORK_ERROR') errorMsg = "RPC error";
+
+        const row = document.createElement('tr');
+        row.className = 'border-t border-white/5';
+        row.innerHTML = `
+          <td class="px-5 py-2.5 font-mono text-white/40">${account.slice(0,6)}\u2026${account.slice(-4)}</td>
+          <td class="px-5 py-2.5 text-right text-red-400/70">${errorMsg}</td>
+          <td class="px-5 py-2.5 text-right text-red-400/70">${errorMsg}</td>
+        `;
+        tableBody.appendChild(row);
+      }
+    }
+  }
+
+  async function updateAllBalances() {
+    try {
+      await updateBalanceTable('l1', providerL1, tokenL1, accounts);
+      await updateBalanceTable('l2', providerL2, tokenL2, accounts);
+    } catch (error) {
+      console.error('Error updating balances:', error);
+      if (error.code === -32002) log("\u26a0\ufe0f MetaMask request pending.");
+      else log(`\u274c Error updating balances: ${error.message}`);
+    }
+  }
+
+  setInterval(updateAllBalances, 10000);
+  updateAllBalances();
+
+})();
+</script>
+</body>
+</html>

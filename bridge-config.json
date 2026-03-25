@@ -1,0 +1,21 @@
+{
+  "mode": "ephemery",
+  "l1": {
+    "chainId": 39438157,
+    "chainIdHex": "0x259c74d",
+    "rpc": "http://localhost:8545",
+    "token": "0xbCF26943C0197d2eE0E5D05c716Be60cc2761508",
+    "sender": "0x59F2f1fCfE2474fD5F0b9BA1E73ca90b143Eb8d0"
+  },
+  "l2": {
+    "network": "blockdag",
+    "chainId": 1043,
+    "chainIdHex": "0x413",
+    "rpc": "https://rpc.awakening.bdagscan.com",
+    "token": "0x5BEE4b1691cBEDab1B08726f49D914d9bBC3Dd74",
+    "receiver": "0xe38293134297f062Eb9aB7d7CDa83733357C90c1"
+  },
+  "monitorAccounts": [
+    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+  ]
+}

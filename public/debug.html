@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Debug - GuaraniToken Bridge</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://unpkg.com/ethers@6.11.1/dist/ethers.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .section { border: 1px solid #ccc; margin: 10px 0; padding: 15px; border-radius: 5px; }
+    .success { background-color: #d4edda; border-color: #c3e6cb; }
+    .error { background-color: #f8d7da; border-color: #f5c6cb; }
+    .info { background-color: #d1ecf1; border-color: #bee5eb; }
+    button { padding: 10px 15px; margin: 5px; cursor: pointer; }
+    pre { background: #f8f9fa; padding: 10px; border-radius: 3px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>🔧 Debug GuaraniToken Bridge</h1>
+  
+  <div class="section info">
+    <h3>📋 Información de Conectividad</h3>
+    <div id="connection-info">Verificando...</div>
+  </div>
+
+  <div class="section">
+    <h3>🌐 Estado de Red</h3>
+    <button onclick="checkNetwork()">Verificar Red</button>
+    <div id="network-info"></div>
+  </div>
+
+  <div class="section">
+    <h3>📍 Verificar Contratos</h3>
+    <button onclick="checkContracts()">Verificar Contratos L1</button>
+    <div id="contract-info"></div>
+  </div>
+
+  <div class="section">
+    <h3>💰 Estado de Tokens</h3>
+    <button onclick="checkTokens()">Verificar Tokens</button>
+    <div id="token-info"></div>
+  </div>
+
+  <div class="section">
+    <h3>🔄 Test Bridge</h3>
+    <input type="text" id="test-address" placeholder="Dirección destino para test" />
+    <button onclick="testBridge()">Test Bridge (1 GUA)</button>
+    <div id="bridge-info"></div>
+  </div>
+
+<script>
+// Configuración desde deploy files
+const CONFIG = {
+  L1: {
+    chainId: 31337,
+    chainIdHex: "0x7a69",
+    rpc: "http://127.0.0.1:8545",
+    token: "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    sender: "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+  },
+  L2: {
+    chainId: 1338,
+    chainIdHex: "0x53a",
+    rpc: "http://127.0.0.1:9545",
+    token: "0x8464135c8F25Da09e49BC8782676a84730C318bC",
+    receiver: "0x71C95911E9a5D330f4D621842EC243EE1343292e"
+  }
+};
+
+let provider, signer, userAddress;
+
+// ABIs
+const tokenAbi = [
+  "function name() view returns (string)",
+  "function symbol() view returns (string)",
+  "function decimals() view returns (uint8)",
+  "function totalSupply() view returns (uint256)",
+  "function balanceOf(address) view returns (uint256)",
+  "function allowance(address,address) view returns (uint256)",
+  "function approve(address,uint256) returns (bool)"
+];
+
+const senderAbi = [
+  "function lock(address,uint256)",
+  "function nonce() view returns (uint256)"
+];
+
+async function init() {
+  try {
+    if (!window.ethereum) {
+      document.getElementById("connection-info").innerHTML = "❌ MetaMask no detectado";
+      return;
+    }
+
+    await ethereum.request({ method: "eth_requestAccounts" });
+    provider = new ethers.BrowserProvider(ethereum);
+    signer = await provider.getSigner();
+    userAddress = await signer.getAddress();
+
+    const network = await provider.getNetwork();
+    
+    document.getElementById("connection-info").innerHTML = `
+      ✅ MetaMask conectado<br>
+      👤 Dirección: ${userAddress}<br>
+      🌐 Chain ID: ${network.chainId}<br>
+      🔗 RPC: ${provider._network?.provider?.url || 'N/A'}
+    `;
+  } catch (error) {
+    document.getElementById("connection-info").innerHTML = `❌ Error: ${error.message}`;
+  }
+}
+
+async function checkNetwork() {
+  const div = document.getElementById("network-info");
+  try {
+    const network = await provider.getNetwork();
+    const blockNumber = await provider.getBlockNumber();
+    
+    let networkStatus = "";
+    if (network.chainId === BigInt(CONFIG.L1.chainId)) {
+      networkStatus = "✅ Conectado a L1 (correcto)";
+    } else if (network.chainId === BigInt(CONFIG.L2.chainId)) {
+      networkStatus = "⚠️ Conectado a L2 (necesitas L1 para bridge)";
+    } else {
+      networkStatus = `❌ Red incorrecta (Chain ID: ${network.chainId})`;
+    }
+
+    div.innerHTML = `
+      ${networkStatus}<br>
+      📊 Bloque actual: ${blockNumber}<br>
+      🔗 Chain ID esperado L1: ${CONFIG.L1.chainId}<br>
+      🔗 Chain ID esperado L2: ${CONFIG.L2.chainId}
+    `;
+  } catch (error) {
+    div.innerHTML = `❌ Error verificando red: ${error.message}`;
+  }
+}
+
+async function checkContracts() {
+  const div = document.getElementById("contract-info");
+  try {
+    // Verificar que estemos en L1
+    const network = await provider.getNetwork();
+    if (network.chainId !== BigInt(CONFIG.L1.chainId)) {
+      div.innerHTML = "⚠️ Cambia a L1 para verificar contratos";
+      return;
+    }
+
+    div.innerHTML = "🔍 Verificando contratos...";
+
+    // Verificar Token
+    const tokenCode = await provider.getCode(CONFIG.L1.token);
+    const senderCode = await provider.getCode(CONFIG.L1.sender);
+
+    let result = "";
+    
+    if (tokenCode === "0x") {
+      result += "❌ Token no deployado en " + CONFIG.L1.token + "<br>";
+    } else {
+      result += "✅ Token encontrado<br>";
+      try {
+        const token = new ethers.Contract(CONFIG.L1.token, tokenAbi, provider);
+        const name = await token.name();
+        const symbol = await token.symbol();
+        result += `   📛 ${name} (${symbol})<br>`;
+      } catch (e) {
+        result += `   ⚠️ Error leyendo token: ${e.message}<br>`;
+      }
+    }
+
+    if (senderCode === "0x") {
+      result += "❌ Sender no deployado en " + CONFIG.L1.sender + "<br>";
+    } else {
+      result += "✅ Sender encontrado<br>";
+      try {
+        const sender = new ethers.Contract(CONFIG.L1.sender, senderAbi, provider);
+        const nonce = await sender.nonce();
+        result += `   🔢 Nonce actual: ${nonce}<br>`;
+      } catch (e) {
+        result += `   ⚠️ Error leyendo sender: ${e.message}<br>`;
+      }
+    }
+
+    div.innerHTML = result;
+  } catch (error) {
+    div.innerHTML = `❌ Error verificando contratos: ${error.message}`;
+  }
+}
+
+async function checkTokens() {
+  const div = document.getElementById("token-info");
+  try {
+    const network = await provider.getNetwork();
+    if (network.chainId !== BigInt(CONFIG.L1.chainId)) {
+      div.innerHTML = "⚠️ Cambia a L1 para verificar tokens";
+      return;
+    }
+
+    div.innerHTML = "🔍 Verificando balances...";
+
+    const token = new ethers.Contract(CONFIG.L1.token, tokenAbi, signer);
+    
+    const balance = await token.balanceOf(userAddress);
+    const allowance = await token.allowance(userAddress, CONFIG.L1.sender);
+    const totalSupply = await token.totalSupply();
+
+    div.innerHTML = `
+      💰 Tu balance: ${ethers.formatEther(balance)} GUA<br>
+      ✅ Allowance al Sender: ${ethers.formatEther(allowance)} GUA<br>
+      📊 Total Supply: ${ethers.formatEther(totalSupply)} GUA
+    `;
+  } catch (error) {
+    div.innerHTML = `❌ Error verificando tokens: ${error.message}`;
+  }
+}
+
+async function testBridge() {
+  const div = document.getElementById("bridge-info");
+  const destAddress = document.getElementById("test-address").value.trim();
+  
+  if (!destAddress || !ethers.isAddress(destAddress)) {
+    div.innerHTML = "❌ Ingresa una dirección válida";
+    return;
+  }
+
+  try {
+    const network = await provider.getNetwork();
+    if (network.chainId !== BigInt(CONFIG.L1.chainId)) {
+      div.innerHTML = "⚠️ Cambia a L1 para hacer bridge";
+      return;
+    }
+
+    div.innerHTML = "🔄 Iniciando test bridge...";
+
+    const token = new ethers.Contract(CONFIG.L1.token, tokenAbi, signer);
+    const sender = new ethers.Contract(CONFIG.L1.sender, senderAbi, signer);
+    
+    const amount = ethers.parseEther("1"); // 1 GUA
+
+    // Verificar balance
+    const balance = await token.balanceOf(userAddress);
+    if (balance < amount) {
+      div.innerHTML = `❌ Balance insuficiente. Tienes: ${ethers.formatEther(balance)} GUA`;
+      return;
+    }
+
+    // Verificar allowance
+    const allowance = await token.allowance(userAddress, CONFIG.L1.sender);
+    if (allowance < amount) {
+      div.innerHTML = "📝 Aprobando tokens...";
+      const approveTx = await token.approve(CONFIG.L1.sender, amount);
+      await approveTx.wait();
+      div.innerHTML = "✅ Tokens aprobados. Haciendo lock...";
+    }
+
+    // Lock
+    div.innerHTML = "🔒 Ejecutando lock...";
+    const lockTx = await sender.lock(destAddress, amount);
+    await lockTx.wait();
+
+    const newNonce = await sender.nonce();
+    div.innerHTML = `✅ Bridge exitoso!<br>ID: ${newNonce - 1n}<br>Monto: 1 GUA<br>Destino: ${destAddress}`;
+
+  } catch (error) {
+    div.innerHTML = `❌ Error en bridge: ${error.message}`;
+  }
+}
+
+// Auto-conectar al cargar
+window.addEventListener('load', init);
+</script>
+</body>
+</html> 

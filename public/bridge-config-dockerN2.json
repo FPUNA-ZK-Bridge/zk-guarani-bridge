@@ -1,0 +1,20 @@
+{
+  "mode": "ephemery",
+  "l1": {
+    "chainId": 39438156,
+    "chainIdHex": "0x259c74c",
+    "rpc": null,
+    "token": "0x8464135c8F25Da09e49BC8782676a84730C318bC",
+    "sender": "0x71C95911E9a5D330f4D621842EC243EE1343292e"
+  },
+  "l2": {
+    "chainId": 1338,
+    "chainIdHex": "0x53a",
+    "rpc": null,
+    "token": "0x8464135c8F25Da09e49BC8782676a84730C318bC",
+    "receiver": "0x71C95911E9a5D330f4D621842EC243EE1343292e"
+  },
+  "monitorAccounts": [
+    "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+  ]
+}
