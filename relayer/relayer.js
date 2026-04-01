@@ -7,6 +7,8 @@ import * as snarkjs from "snarkjs";
 import "dotenv/config";
 import { config as bridgeEnv, isLocal } from "../bridge-env.js";
 import accountManager from "../utils/accounts.js";
+import { fetchBeaconData } from "../generate_data/index.js";
+import { transformData } from "../generate_data/transformData.js";
 
 // RPCs resueltos desde bridge-env (override con env vars si están definidos)
 const RPC_URL_N1 = process.env.RPC_URL_N1 || bridgeEnv.n1.rpc;
@@ -323,23 +325,63 @@ async function printN2FundsHint(context = "") {
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const WASM_PATH = path.resolve(__dirname, "../circom/multiplier2_js/multiplier2.wasm");
 const ZKEY_PATH = path.resolve(__dirname, "../circom/multiplier2_0001.zkey");
+const CIRCOM_INPUT_DIR = path.resolve(__dirname, "../circom");
 
-async function generateProof(a, b) {
-  console.log(`🔐 Generando prueba ZK con inputs: a=${a}, b=${b}`);
+const BEACON_NODE_URL = process.env.BEACON_NODE_URL || "http://localhost:5052";
+
+/**
+ * Construye el input para circom:
+ * 1. Llama al beacon node para obtener la data cruda (sync committee, header, firma)
+ * 2. Transforma la data al formato que espera el circuito circom
+ */
+async function buildCircomInput() {
+  // 1. Obtener data cruda del beacon node
+  console.log("📡 Consultando beacon node para obtener data del sync committee...");
+  const beaconData = await fetchBeaconData(BEACON_NODE_URL);
+
+  // Guardar data cruda para referencia
+  const rawPath = path.join(CIRCOM_INPUT_DIR, "beacon_data.json");
+  fs.writeFileSync(rawPath, JSON.stringify(beaconData, null, 2));
+  console.log(`📁 Data cruda del beacon guardada en: ${rawPath}`);
+
+  // 2. Transformar al formato circom (signing_root[32], pubkeys[512][2][7], bits[512], signature G2)
+  console.log("🔄 Transformando data al formato circom...");
+  const circomInput = await transformData(beaconData);
+
+  // Guardar input circom para referencia
+  const inputPath = path.join(CIRCOM_INPUT_DIR, "input.json");
+  fs.writeFileSync(inputPath, JSON.stringify(circomInput, null, 2));
+  console.log(`📁 Input circom guardado en: ${inputPath}`);
+
+  return circomInput;
+}
+
+async function generateProof(id, amount) {
+  console.log(`🔐 Generando prueba ZK para id=${id}...`);
+
+  // 1. Generar data del beacon node y transformar a formato circom (solo guardar por ahora)
+  try {
+    await buildCircomInput();
+  } catch (e) {
+    console.log(`⚠️ No se pudo generar input circom desde beacon: ${e.message}`);
+  }
+
+  // 2. Generar la prueba con el circuito actual (multiplier2)
+  // TODO: Cuando se migre al circuito BLS, usar circomInput como input:
+  //   snarkjs.groth16.fullProve(circomInput, WASM_BLS_PATH, ZKEY_BLS_PATH)
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-    { a: String(a), b: String(b) },
+    { a: String(id), b: String(amount) },
     WASM_PATH,
     ZKEY_PATH
   );
   console.log("✅ Proof generado:", JSON.stringify(publicSignals));
 
-  // Guardar proof y public signals para referencia
-  const proofDir = path.resolve(__dirname, "../circom");
-  fs.writeFileSync(path.join(proofDir, "proof.json"), JSON.stringify(proof, null, 2));
-  fs.writeFileSync(path.join(proofDir, "public.json"), JSON.stringify(publicSignals, null, 2));
+  // 3. Guardar proof y public signals para referencia
+  fs.writeFileSync(path.join(CIRCOM_INPUT_DIR, "proof.json"), JSON.stringify(proof, null, 2));
+  fs.writeFileSync(path.join(CIRCOM_INPUT_DIR, "public.json"), JSON.stringify(publicSignals, null, 2));
   console.log("📁 proof.json y public.json guardados en circom/");
 
-  // Formatear proof para el contrato Solidity (snarkjs exporta en formato compatible)
+  // 4. Formatear proof para el contrato Solidity
   const pA = [proof.pi_a[0], proof.pi_a[1]];
   const pB = [
     [proof.pi_b[0][1], proof.pi_b[0][0]],
@@ -368,7 +410,7 @@ const handleLockedEvent = async (id, from, to, amount, retries = 3) => {
       return;
     }
 
-    // Generar prueba ZK antes de mintear
+    // Generar input circom (beacon node) + prueba ZK antes de mintear
     const { pA, pB, pC, pubSignals } = await generateProof(id, amount);
 
     const overrides = buildN2TxOverrides();

@@ -101,8 +101,12 @@
             <label for="amt" class="block text-xs font-medium text-white/60 mb-1.5">Amount (GUA)</label>
             <input id="amt" type="number" value="10" step="0.0001" class="w-full px-4 py-2.5 rounded-lg bg-white/5 border border-white/10 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 transition" />
           </div>
-          <button id="btn-bridge" class="w-full py-3 rounded-lg bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-sm font-semibold tracking-wide transition-all duration-200 shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 active:scale-[0.98]">
-            BRIDGE &rarr;
+          <button id="btn-bridge" class="w-full py-3 rounded-lg bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-sm font-semibold tracking-wide transition-all duration-200 shadow-lg shadow-brand-500/25 hover:shadow-brand-500/40 active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed disabled:active:scale-100">
+            <span id="btn-bridge-text">BRIDGE &rarr;</span>
+            <span id="btn-bridge-loading" class="hidden items-center justify-center gap-2">
+              <svg class="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+              <span id="btn-bridge-status">Processing...</span>
+            </span>
           </button>
 
           <!-- Log console -->
@@ -360,36 +364,69 @@
   const sender = new ethers.Contract(SENDER_L1, abiSender, signer);
 
   /* ─── Bridge action ─── */
-  document.getElementById("btn-bridge").onclick = async () => {
+  const btnBridge = document.getElementById("btn-bridge");
+  const btnText = document.getElementById("btn-bridge-text");
+  const btnLoading = document.getElementById("btn-bridge-loading");
+  const btnStatus = document.getElementById("btn-bridge-status");
+
+  function setBusy(status) {
+    btnBridge.disabled = true;
+    btnText.classList.add("hidden");
+    btnLoading.classList.remove("hidden");
+    btnLoading.classList.add("inline-flex");
+    btnStatus.textContent = status;
+  }
+
+  function setIdle() {
+    btnBridge.disabled = false;
+    btnText.classList.remove("hidden");
+    btnLoading.classList.add("hidden");
+    btnLoading.classList.remove("inline-flex");
+  }
+
+  btnBridge.onclick = async () => {
     try {
+      setBusy("Switching to N1...");
+      log("[1/5] Switching to N1 chain...");
       await switchTo(CHAIN_L1);
+      log("\u2705 Connected to N1");
 
       const dest   = document.getElementById("dest").value.trim();
       const amount = ethers.parseUnits(document.getElementById("amt").value || "0", 18);
-      if (!ethers.isAddress(dest)) return alert("Invalid destination address");
+      if (!ethers.isAddress(dest)) { setIdle(); return alert("Invalid destination address"); }
 
+      setBusy("Checking allowance...");
+      log("[2/5] Checking token allowance...");
       const allow = await token.allowance(signer.address, SENDER_L1);
       if (allow < amount) {
-        log("approve\u2026");
+        setBusy("Approving tokens...");
+        log("[2/5] Approving tokens... (confirm in MetaMask)");
         const tx = await token.approve(SENDER_L1, amount);
-        await tx.wait(2); log("approve ok");
+        log("[2/5] Waiting for approval confirmation...");
+        await tx.wait(2);
+        log("\u2705 Tokens approved");
+      } else {
+        log("\u2705 Allowance sufficient");
       }
 
-      // const proofOk = await verificarFinal();
-      // if (!proofOk) {
-      //   throw new Error("Proof inválido");
-      // }
-      // console.log("✅ Proof verificado OK");
-
-      log("lock\u2026");
+      setBusy("Locking tokens...");
+      log("[3/5] Locking tokens on N1... (confirm in MetaMask)");
       const tx2 = await sender.lock(dest, amount);
+      log("[3/5] Waiting for lock confirmation...");
       await tx2.wait();
       const idBN   = await sender.nonce();
       const lockId = idBN - 1n;
       log(`\u2705 Locked id ${lockId.toString()}, amount ${ethers.formatUnits(amount,18)} GUA`);
-      log("\ud83d\udd04 Waiting for relayer to mint on N2\u2026");
+
+      setBusy("Generating ZK proof...");
+      log("[4/5] Relayer generating ZK proof and verifying...");
+      log("[5/5] Waiting for relayer to mint on N2...");
+
+      setIdle();
+      log("\ud83d\udd04 Transaction submitted. Waiting for mint on N2...");
 
     } catch (e) {
+      setIdle();
       console.error("Bridge error:", e);
       let errorMsg = "Unknown error";
       if (e.message?.includes("nonce")) errorMsg = "Nonce error. Please try again.";
@@ -433,7 +470,9 @@
 
   if (contractL2) {
     contractL2.on("Minted", (to, amount, lockId) => {
-      log(`\ud83c\udf89 Minted: to=${to}, amount=${ethers.formatUnits(amount,18)} GUA, lockId=${lockId}`);
+      log(`\u2705 ZK proof verified on-chain!`);
+      log(`\ud83c\udf89 Minted on N2: ${ethers.formatUnits(amount,18)} GUA \u2192 ${to} (lockId=${lockId})`);
+      log(`\u2728 Bridge transfer complete!`);
     });
   } else {
     log("\u2139\ufe0f N2 listener disabled (cfg.l2.rpc or cfg.l2.receiver is empty).");

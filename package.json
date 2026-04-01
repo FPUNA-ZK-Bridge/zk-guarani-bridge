@@ -26,6 +26,11 @@
     "@openzeppelin/contracts": "^5.0.2",
     "dotenv": "^16.4.1",
     "ethers": "^6.15.0",
-    "snarkjs": "^0.7.6"
+    "snarkjs": "^0.7.6",
+    "node-fetch": "^2.6.7",
+    "poseidon-hash": "^1.0.1",
+    "@chainsafe/ssz": "^0.15.1",
+    "@lodestar/types": "^1.34.1",
+    "@noble/curves": "^1.9.7"
   }
 }
