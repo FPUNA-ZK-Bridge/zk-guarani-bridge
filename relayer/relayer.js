@@ -199,7 +199,7 @@ const receiverAbi = [
         { "internalType": "uint256[2]", "name": "_pA", "type": "uint256[2]" },
         { "internalType": "uint256[2][2]", "name": "_pB", "type": "uint256[2][2]" },
         { "internalType": "uint256[2]", "name": "_pC", "type": "uint256[2]" },
-        { "internalType": "uint256[1]", "name": "_pubSignals", "type": "uint256[1]" }
+        { "internalType": "uint256[4]", "name": "_pubSignals", "type": "uint256[4]" }
       ],
       "name": "mintRemote",
       "outputs": [],
@@ -323,32 +323,46 @@ async function printN2FundsHint(context = "") {
 
 // ---------- ZK proof generation ----------
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const WASM_PATH = path.resolve(__dirname, "../circom/multiplier2_js/multiplier2.wasm");
-const ZKEY_PATH = path.resolve(__dirname, "../circom/multiplier2_0001.zkey");
-const CIRCOM_INPUT_DIR = path.resolve(__dirname, "../circom");
+const WASM_PATH = path.resolve(__dirname, "../circom/verify_header/verify_header.wasm");
+const ZKEY_PATH = path.resolve(__dirname, "../circom/verify_header/verify_header_0001.zkey");
+const CIRCOM_INPUT_DIR = path.resolve(__dirname, "../circom/verify_header");
 
 const BEACON_NODE_URL = process.env.BEACON_NODE_URL || "http://localhost:5052";
 
 /**
- * Construye el input para circom:
+ * Construye el input para el circuito VerifyHeaderMock(512, 7):
+ *   - signing_root[32]      (público)
+ *   - pubkeys[512][2][7]    (privado)
+ *   - pubkeybits[512]       (público)
+ *
  * 1. Llama al beacon node para obtener la data cruda (sync committee, header, firma)
- * 2. Transforma la data al formato que espera el circuito circom
+ * 2. Transforma la data al formato que espera el circuito
+ * 3. Mapea los nombres de campos de transformData al esquema del circuito
  */
-async function buildCircomInput() {
-  // 1. Obtener data cruda del beacon node
-  console.log("📡 Consultando beacon node para obtener data del sync committee...");
-  const beaconData = await fetchBeaconData(BEACON_NODE_URL);
+async function buildCircomInput(transactionHash) {
+  if (!transactionHash) {
+    throw new Error("Se requiere transactionHash para construir el input circom");
+  }
 
-  // Guardar data cruda para referencia
+  console.log(`📡 Consultando beacon node usando tx hash ${transactionHash}...`);
+  const receipt = await providerN1.getTransactionReceipt(transactionHash);
+  if (!receipt?.blockHash) {
+    throw new Error(`No pude resolver el bloque de la tx ${transactionHash}`);
+  }
+
+  console.log(`   Execution block hash: ${receipt.blockHash}`);
+  const beaconData = await fetchBeaconData(BEACON_NODE_URL, {
+    transactionHash,
+    executionBlockHash: receipt.blockHash,
+  });
+
   const rawPath = path.join(CIRCOM_INPUT_DIR, "beacon_data.json");
   fs.writeFileSync(rawPath, JSON.stringify(beaconData, null, 2));
   console.log(`📁 Data cruda del beacon guardada en: ${rawPath}`);
 
-  // 2. Transformar al formato circom (signing_root[32], pubkeys[512][2][7], bits[512], signature G2)
   console.log("🔄 Transformando data al formato circom...");
   const circomInput = await transformData(beaconData);
 
-  // Guardar input circom para referencia
   const inputPath = path.join(CIRCOM_INPUT_DIR, "input.json");
   fs.writeFileSync(inputPath, JSON.stringify(circomInput, null, 2));
   console.log(`📁 Input circom guardado en: ${inputPath}`);
@@ -356,25 +370,22 @@ async function buildCircomInput() {
   return circomInput;
 }
 
-async function generateProof(id, amount) {
+async function generateProof(id, sourceTxHash) {
   console.log(`🔐 Generando prueba ZK para id=${id}...`);
 
-  // 1. Generar data del beacon node y transformar a formato circom (solo guardar por ahora)
-  try {
-    await buildCircomInput();
-  } catch (e) {
-    console.log(`⚠️ No se pudo generar input circom desde beacon: ${e.message}`);
-  }
+  // 1. Construir input del circuito desde el beacon node
+  const circomInput = await buildCircomInput(sourceTxHash);
 
-  // 2. Generar la prueba con el circuito actual (multiplier2)
-  // TODO: Cuando se migre al circuito BLS, usar circomInput como input:
-  //   snarkjs.groth16.fullProve(circomInput, WASM_BLS_PATH, ZKEY_BLS_PATH)
+  // 2. Generar la prueba con VerifyHeaderMock(512, 7)
+  console.log("⏳ snarkjs.groth16.fullProve (puede tardar, ~1M constraints)...");
+  const t0 = Date.now();
   const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-    { a: String(id), b: String(amount) },
+    circomInput,
     WASM_PATH,
     ZKEY_PATH
   );
-  console.log("✅ Proof generado:", JSON.stringify(publicSignals));
+  console.log(`✅ Proof generado en ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+  console.log(`   Public signals: ${publicSignals.length} (esperado: 4)`);
 
   // 3. Guardar proof y public signals para referencia
   fs.writeFileSync(path.join(CIRCOM_INPUT_DIR, "proof.json"), JSON.stringify(proof, null, 2));
@@ -394,7 +405,7 @@ async function generateProof(id, amount) {
 }
 
 // Función para manejar eventos Locked con reintentos
-const handleLockedEvent = async (id, from, to, amount, retries = 3) => {
+const handleLockedEvent = async (id, from, to, amount, retries = 3, sourceTxHash = null) => {
   try {
     console.log(
       `🔒  id=${id}  from=${from.substring(0, 6)}… -> ${to.substring(
@@ -402,6 +413,9 @@ const handleLockedEvent = async (id, from, to, amount, retries = 3) => {
         6
       )}…  amount=${ethers.formatUnits(amount, 18)}`
     );
+    if (sourceTxHash) {
+      console.log(`🧾 Locked tx hash: ${sourceTxHash}`);
+    }
 
     // Verificar si ya fue procesado en N2
     const alreadyProcessed = await receiver.processed(id);
@@ -411,7 +425,7 @@ const handleLockedEvent = async (id, from, to, amount, retries = 3) => {
     }
 
     // Generar input circom (beacon node) + prueba ZK antes de mintear
-    const { pA, pB, pC, pubSignals } = await generateProof(id, amount);
+    const { pA, pB, pC, pubSignals } = await generateProof(id, sourceTxHash);
 
     const overrides = buildN2TxOverrides();
     const tx = await receiver.mintRemote(id, to, amount, pA, pB, pC, pubSignals, overrides);
@@ -459,7 +473,10 @@ try {
   const isWsN1 = RPC_URL_N1?.startsWith("ws");
 
   if (isWsN1) {
-    sender.on(sender.getEvent("Locked"), handleLockedEvent);
+    sender.on(sender.getEvent("Locked"), async (id, from, to, amount, event) => {
+      const sourceTxHash = event?.log?.transactionHash ?? event?.transactionHash ?? null;
+      await handleLockedEvent(id, from, to, amount, 3, sourceTxHash);
+    });
   } else {
     const iface = new ethers.Interface(senderAbi);
     const topic0 = iface.getEvent("Locked").topicHash;
@@ -490,7 +507,7 @@ try {
               try {
                 const parsed = iface.parseLog(log);
                 const { id, from, to, amount } = parsed.args;
-                await handleLockedEvent(id, from, to, amount);
+                await handleLockedEvent(id, from, to, amount, 3, log.transactionHash ?? null);
               } catch (e) {
                 console.log(`⚠️ No pude parsear/procesar log Locked: ${e.message}`);
               }
@@ -527,13 +544,17 @@ try {
 try {
   const isWsN2 = RPC_URL_N2?.startsWith("ws");
   if (isWsN2) {
-    receiverListen.on(receiverListen.getEvent("Minted"), async (id, to, amount) => {
+    receiverListen.on(receiverListen.getEvent("Minted"), async (id, to, amount, event) => {
+      const mintedTxHash = event?.log?.transactionHash ?? event?.transactionHash ?? null;
       console.log(
         `💰  id=${id}  to=${to.substring(0, 6)}…  amount=${ethers.formatUnits(
           amount,
           18
         )}`
       );
+      if (mintedTxHash) {
+        console.log(`🧾 Minted tx hash: ${mintedTxHash}`);
+      }
       console.log("SE TRANSFIRIO ( evento Minted )");
     });
   } else {
@@ -565,6 +586,9 @@ try {
                     18
                   )}`
                 );
+                if (log.transactionHash) {
+                  console.log(`🧾 Minted tx hash: ${log.transactionHash}`);
+                }
               } catch (e) {
                 console.log(`⚠️ No pude parsear log Minted: ${e.message}`);
               }

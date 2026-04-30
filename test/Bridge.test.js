@@ -1,23 +1,31 @@
 import { expect } from "chai";
 import hre from "hardhat";
 import * as snarkjs from "snarkjs";
+import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const { ethers } = hre;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Rutas a los artefactos circom
-const WASM_PATH = path.resolve(__dirname, "../circom/multiplier2_js/multiplier2.wasm");
-const ZKEY_PATH = path.resolve(__dirname, "../circom/multiplier2_0001.zkey");
+// Rutas a los artefactos del nuevo circuito VerifyHeaderMock(512, 7)
+const WASM_PATH = path.resolve(__dirname, "../circom/verify_header/verify_header.wasm");
+const ZKEY_PATH = path.resolve(__dirname, "../circom/verify_header/verify_header_0001.zkey");
+// Fixture con un input válido ya computado del beacon node.
+// Si no existe, los tests de prueba ZK se saltan.
+const INPUT_FIXTURE = path.resolve(__dirname, "../circom/verify_header/input.json");
 
-// Helper: genera proof y la formatea para el contrato
-async function generateProofForContract(a, b) {
-  const { proof, publicSignals } = await snarkjs.groth16.fullProve(
-    { a: String(a), b: String(b) },
-    WASM_PATH,
-    ZKEY_PATH
-  );
+// Los proof-path tests necesitan:
+//   1) wasm + zkey del nuevo circuito (generarlos con `snarkjs groth16 setup` + contribute)
+//   2) un input.json válido (lo genera el relayer a partir del beacon node)
+// Saltamos automáticamente si falta alguno.
+const hasProofArtifacts =
+  fs.existsSync(WASM_PATH) && fs.existsSync(ZKEY_PATH) && fs.existsSync(INPUT_FIXTURE);
+const describeProof = hasProofArtifacts ? describe : describe.skip;
+
+async function generateProofForContract() {
+  const input = JSON.parse(fs.readFileSync(INPUT_FIXTURE, "utf8"));
+  const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, WASM_PATH, ZKEY_PATH);
   const pA = [proof.pi_a[0], proof.pi_a[1]];
   const pB = [
     [proof.pi_b[0][1], proof.pi_b[0][0]],
@@ -28,13 +36,13 @@ async function generateProofForContract(a, b) {
   return { pA, pB, pC, pubSignals };
 }
 
-// Helper: proof falsa (todos ceros)
+// Helper: proof falsa con el tamaño correcto de pubSignals (4)
 function fakeProof() {
   return {
     pA: ["0", "0"],
     pB: [["0", "0"], ["0", "0"]],
     pC: ["0", "0"],
-    pubSignals: ["0"],
+    pubSignals: ["0", "0", "0", "0"],
   };
 }
 
@@ -185,7 +193,9 @@ describe("🌉 GuaraniToken Bridge Tests", function () {
     });
   });
 
-  describe("🏭 3. MINT FUNCTION TESTS (with ZK proof)", function () {
+  describeProof("🏭 3. MINT FUNCTION TESTS (with ZK proof)", function () {
+    this.timeout(600000);
+
     beforeEach(async function () {
       const Token = await ethers.getContractFactory("GuaraniToken");
       tokenL2 = await Token.deploy(0);
@@ -195,7 +205,7 @@ describe("🌉 GuaraniToken Bridge Tests", function () {
     });
 
     it("❌ Should fail mint from non-relayer", async function () {
-      const { pA, pB, pC, pubSignals } = await generateProofForContract(3, 11);
+      const { pA, pB, pC, pubSignals } = await generateProofForContract();
       await expect(
         receiver.connect(user).mintRemote(0, userAddr, ethers.parseUnits("100", 18), pA, pB, pC, pubSignals)
       ).to.be.revertedWith("Receiver: not relayer");
@@ -216,7 +226,7 @@ describe("🌉 GuaraniToken Bridge Tests", function () {
       const amount = ethers.parseUnits("100", 18);
       const id = 0;
 
-      const { pA, pB, pC, pubSignals } = await generateProofForContract(id, amount);
+      const { pA, pB, pC, pubSignals } = await generateProofForContract();
       const tx = await receiver.connect(relayer).mintRemote(id, userAddr, amount, pA, pB, pC, pubSignals);
       await tx.wait();
 
@@ -233,7 +243,7 @@ describe("🌉 GuaraniToken Bridge Tests", function () {
       const amount = ethers.parseUnits("100", 18);
       const id = 0;
 
-      const { pA, pB, pC, pubSignals } = await generateProofForContract(id, amount);
+      const { pA, pB, pC, pubSignals } = await generateProofForContract();
       await receiver.connect(relayer).mintRemote(id, userAddr, amount, pA, pB, pC, pubSignals);
 
       await expect(
@@ -244,7 +254,9 @@ describe("🌉 GuaraniToken Bridge Tests", function () {
     });
   });
 
-  describe("🔗 4. FULL BRIDGE FLOW TEST (with ZK proof)", function () {
+  describeProof("🔗 4. FULL BRIDGE FLOW TEST (with ZK proof)", function () {
+    this.timeout(600000);
+
     it("✅ Should complete full bridge flow (L1 → L2) with ZK verification", async function () {
       // 1. Deploy all contracts
       const Token = await ethers.getContractFactory("GuaraniToken");

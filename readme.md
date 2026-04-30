@@ -1,193 +1,354 @@
 # Guarani Bridge
 
-Puente de tokens descentralizado que permite transferir **GuaraniTokens** entre dos cadenas (L1 ↔ L2) usando el patron **lock-and-mint** con proteccion contra replay attacks.
-
-## Quick Start
-
-Todo el proyecto se controla con una sola variable: `BRIDGE_ENV` en `.env`.
-
-### Local (default)
-
-```bash
-npm install
-
-# Terminal 1 - L1 (Hardhat, puerto 8545)
-npm run node:n1
-
-# Terminal 2 - L2 (Anvil, puerto 9545)
-npm run node:n2
-
-# Terminal 3 - Deploy y relayer
-npm run deploy:n1        # despliega en localN1
-npm run deploy:n2        # despliega en localN2
-npm run relayer
-```
-
-Las cuentas locales se derivan automaticamente del mnemonic de Hardhat. No se necesitan private keys.
-
-### Testnet
-
-```bash
-# 1. Cambiar en .env:
-BRIDGE_ENV=testnet
-
-# 2. Completar las private keys en .env (ver .env.example)
-
-# 3. Deploy y relayer (no se necesitan nodos locales)
-npm run deploy:n1        # despliega en Ephemery
-npm run deploy:n2        # despliega en BlockDAG
-npm run relayer
-```
-
-### Frontend (opcional, ambos entornos)
-
-```bash
-npm run config           # genera config del frontend desde deploy-*.json
-npm run frontend         # http://localhost:3000
-```
-
-## Como Funciona
+Puente de tokens descentralizado que transfiere **GuaraniTokens** entre dos cadenas (L1 ↔ L2) usando el patrón **lock-and-mint**, con verificación de cabeceras del beacon chain mediante **pruebas Groth16** generadas por un circuito Circom (`VerifyHeaderMock(512, 7)`) y protección anti-replay.
 
 ```
     L1 (Chain N1)                            L2 (Chain N2)
     ┌─────────────────────────┐              ┌─────────────────────────┐
     │  GuaraniToken            │              │  GuaraniToken            │
-    │  Sender Contract        │              │  Receiver Contract      │
+    │  Sender Contract        │              │  Receiver + Verifier    │
     └────────────┬────────────┘              └────────────▲────────────┘
                  │                                        │
-                 │ 1. lock(recipient, amount)             │ 3. mintRemote()
-                 │    tokens bloqueados                   │    tokens creados en L2
-                 │    emite evento "Locked"               │    emite evento "Minted"
+                 │ 1. lock(recipient, amount)             │ 4. mintRemote(proof,...)
+                 │    emite "Locked"                      │    Verifier valida ZK proof
                  │                                        │
                  └──────────────┐                         │
                                 ▼                         │
                        ┌─────────────────┐                │
                        │    RELAYER      │────────────────┘
-                       │                 │
                        │ 2. Escucha      │
                        │    "Locked"     │
+                       │ 3. Genera ZK    │
+                       │    proof        │
                        └─────────────────┘
 ```
 
-1. Usuario aprueba tokens al contrato Sender en L1
-2. Usuario llama `lock(recipientL2, amount)` → tokens se bloquean, se emite evento `Locked`
-3. Relayer detecta el evento y ejecuta `mintRemote()` en el Receiver de L2
-4. Se acunan tokens equivalentes para el destinatario en L2
+---
 
-## Configuracion de Entorno
+## 1. Requisitos previos
 
-El archivo `.env` controla todo. Copia `.env.example` como punto de partida:
+| Dependencia | Versión recomendada | Para qué |
+|-------------|---------------------|----------|
+| Node.js     | ≥ 18                | Hardhat, relayer, frontend |
+| npm         | ≥ 9                 | Gestión de paquetes |
+| Foundry (anvil) | última estable | Nodo L2 local (`npm run node:n2`) |
+| circom      | ≥ 2.0.3             | Compilar el circuito |
+| snarkjs     | ya viene como dep   | Trusted setup, generación y verificación de pruebas |
+| Beacon node (opcional) | Lighthouse / Nimbus | Para que el relayer obtenga `input.json` real. Si no hay, se usa el fixture en `circom/verify_header/input.json` |
+
+Instalar `circom` (una sola vez):
+
+```bash
+# macOS / Linux
+git clone https://github.com/iden3/circom.git && cd circom
+cargo build --release
+cargo install --path circom
+```
+
+---
+
+## 2. Setup inicial (correr **una sola vez** después de clonar)
+
+Estos pasos generan todos los artefactos que **no** están versionados (ver `.gitignore`).
+
+### 2.1 Instalar dependencias
+
+```bash
+npm install
+cd circom && npm install && cd ..
+```
+
+### 2.2 Configurar el entorno
 
 ```bash
 cp .env.example .env
+# Por defecto BRIDGE_ENV=local — no hace falta tocar nada para pruebas locales.
 ```
 
-| Variable | Descripcion |
+### 2.3 Compilar contratos Solidity
+
+```bash
+npm run compile
+```
+
+### 2.4 Compilar el circuito Circom
+
+`VerifyHeaderMock(512, 7)` es un circuito grande (~2-3M constraints). Necesita un Powers of Tau de potencia suficiente (usar **`pot22`** o superior, `2^22 ≈ 4.2M`).
+
+```bash
+cd circom/verify_header
+
+# Compilar el circuito → genera verify_header.r1cs, .wasm, .sym y verify_header_js/
+circom verify_header.circom \
+  --r1cs --wasm --sym \
+  -l ../node_modules \
+  -l ../utils
+```
+
+### 2.5 Trusted setup (Powers of Tau + Groth16)
+
+Powers of Tau es genérico — podés descargar el archivo final ya contribuido (mucho más rápido que hacerlo a mano para `2^22`):
+
+```bash
+# Descargar pot22_final.ptau (~2 GB) desde el ceremony oficial de Hermez
+curl -L -o pot22_final.ptau https://hermez.s3-eu-west-1.amazonaws.com/powersOfTau28_hez_final_22.ptau
+```
+
+> Alternativa local (lenta, solo para circuitos pequeños): ver el [tutorial oficial de snarkjs](https://github.com/iden3/snarkjs#guide).
+
+Setup de Groth16 específico para este circuito:
+
+```bash
+# Aún en circom/verify_header/
+
+# 1) Setup inicial → verify_header_0000.zkey
+npx snarkjs groth16 setup verify_header.r1cs pot22_final.ptau verify_header_0000.zkey
+
+# 2) Contribuir al ceremony → verify_header_0001.zkey
+npx snarkjs zkey contribute verify_header_0000.zkey verify_header_0001.zkey \
+  --name="contribucion-tesis" -v -e="entropia random aqui"
+
+# 3) Exportar verification_key.json
+npx snarkjs zkey export verificationkey verify_header_0001.zkey verification_key.json
+
+# 4) Exportar el verificador Solidity → ../../contracts/Groth16Verifier.sol
+npx snarkjs zkey export solidityverifier verify_header_0001.zkey ../../contracts/Groth16Verifier.sol
+
+cd ../..
+```
+
+Después del setup deberías tener:
+
+```
+circom/verify_header/verify_header.wasm
+circom/verify_header/verify_header_0001.zkey
+circom/verify_header/verification_key.json
+contracts/Groth16Verifier.sol
+```
+
+### 2.6 (Opcional) Generar un witness/proof de smoke-test
+
+Asegurate de que `circom/verify_header/input.json` existe (hay un fixture commiteado o lo genera el relayer). Para validar que todo el pipeline funciona antes de correr el bridge:
+
+```bash
+cd circom/verify_header
+
+# Generar witness
+node generate_witness.js verify_header.wasm input.json witness.wtns
+
+# Generar prueba
+npx snarkjs groth16 prove verify_header_0001.zkey witness.wtns proof.json public.json
+
+# Verificar prueba off-chain
+npx snarkjs groth16 verify verification_key.json public.json proof.json
+# → "OK!" si todo está bien
+cd ../..
+```
+
+### 2.7 Recompilar contratos (ahora que existe `Groth16Verifier.sol`)
+
+```bash
+npm run compile
+```
+
+---
+
+## 3. Probar el bridge en local
+
+Abrir **3 terminales** desde la raíz del proyecto:
+
+### Terminal 1 — Nodo L1 (Hardhat, puerto 8545)
+
+```bash
+npm run node:n1
+```
+
+### Terminal 2 — Nodo L2 (Anvil, puerto 9545)
+
+```bash
+npm run node:n2
+```
+
+### Terminal 3 — Deploy y relayer
+
+```bash
+# Despliega Token + Sender en N1 y guarda direcciones en deploy-N1.json
+npm run deploy:n1
+
+# Despliega Token + Verifier + Receiver en N2 y guarda direcciones en deploy-N2.json
+npm run deploy:n2
+
+# Genera la config del frontend desde deploy-*.json
+npm run config
+
+# Inicia el relayer (escucha eventos Locked en N1 y mintea en N2 con prueba ZK)
+npm run relayer
+```
+
+Las cuentas locales (deployer, relayer, usuarios) se derivan automáticamente del mnemonic de Hardhat — **no se necesitan private keys** ni configurar nada más.
+
+### Terminal 4 (opcional) — Frontend
+
+```bash
+npm run frontend          # http://localhost:3000
+```
+
+### Probar una transferencia desde scripts
+
+Con el relayer corriendo en otra terminal:
+
+```bash
+# Mintear tokens al usuario en N1
+npx hardhat run scripts/mintTokens.js --network localN1
+
+# Aprobar al Sender
+npx hardhat run scripts/approveTokens.js --network localN1
+
+# Hacer lock → dispara el flujo del bridge
+npx hardhat run scripts/lockTokens.js --network localN1
+
+# Verificar balances
+npx hardhat run scripts/checkBalance.js --network localN1
+npx hardhat run scripts/checkBalance.js --network localN2
+```
+
+El relayer detectará el evento `Locked`, generará la prueba ZK con el circuito y llamará a `mintRemote()` en N2.
+
+---
+
+## 4. Tests automatizados
+
+```bash
+# Tests del bridge (incluye verificación de prueba ZK on-chain si los artefactos existen)
+npm run test:bridge
+
+# Tests de infraestructura
+npm run test:infra
+
+# Todos
+npm run test:all
+```
+
+> Los tests que requieren prueba ZK (`describeProof`) **se saltan automáticamente** si faltan `verify_header.wasm`, `verify_header_0001.zkey` o `circom/verify_header/input.json`. Completá el paso 2 si querés ejecutarlos.
+
+---
+
+## 5. Modo testnet (Ephemery + BlockDAG)
+
+```bash
+# 1) Cambiar en .env
+BRIDGE_ENV=testnet
+
+# 2) Completar las private keys requeridas
+EPHEMERY_RPC_URL=...
+EPHEMERY_PRIVATE_KEY=...
+BLOCKDAG_RPC_URL=...
+BLOCKDAG_PRIVATE_KEY=...
+PRIVATE_KEY_RELAYER=...
+RELAYER_ADDRESS=0x...
+
+# 3) Deploy y relayer (no se levantan nodos locales)
+npm run deploy:n1
+npm run deploy:n2
+npm run relayer
+```
+
+| Variable | Descripción |
 |----------|-------------|
-| `BRIDGE_ENV` | `local` o `testnet` — unica variable requerida para cambiar de entorno |
-| `EPHEMERY_RPC_URL` | RPC de Ephemery (solo testnet) |
-| `EPHEMERY_PRIVATE_KEY` | Private key para Ephemery (solo testnet) |
-| `BLOCKDAG_RPC_URL` | RPC de BlockDAG (solo testnet) |
-| `BLOCKDAG_PRIVATE_KEY` | Private key para BlockDAG (solo testnet) |
-| `PRIVATE_KEY_RELAYER` | Private key del relayer (solo testnet) |
-| `RELAYER_ADDRESS` | Direccion del relayer (solo testnet) |
+| `BRIDGE_ENV` | `local` o `testnet` — única variable que cambia el entorno |
+| `EPHEMERY_RPC_URL` / `EPHEMERY_PRIVATE_KEY` | Conexión a Ephemery (L1 testnet) |
+| `BLOCKDAG_RPC_URL` / `BLOCKDAG_PRIVATE_KEY` | Conexión a BlockDAG (L2 testnet) |
+| `PRIVATE_KEY_RELAYER` / `RELAYER_ADDRESS` | Relayer en testnet |
+| `BEACON_NODE_URL` | URL del beacon node (default `http://localhost:5052`) — usado por el relayer para construir `input.json` |
 
-**En modo local** todas las cuentas (deployer, relayer, usuarios) se derivan automaticamente del mnemonic de Hardhat. No se necesita configurar nada mas.
+---
 
-## Redes Soportadas
-
-| Entorno | L1 (N1) | L2 (N2) |
-|---------|---------|---------|
-| `local` | Hardhat — `localhost:8545`, chainId 31337 | Anvil — `localhost:9545`, chainId 1338 |
-| `testnet` | Ephemery — configurable via `.env` | BlockDAG — configurable via `.env` |
-
-## Docker Compose (alternativa)
-
-Para correr todo en contenedores (usa redes Docker internas, independiente de `BRIDGE_ENV`):
+## 6. Docker Compose (alternativa)
 
 ```bash
 docker compose build
 docker compose up -d hardhat-n1 anvil-n2
 
-# Esperar a que hardhat-n1 este healthy
-docker compose ps
-
-# Deploy
 docker compose run --rm deployer npx hardhat run scripts/deployN1.js --network dockerN1
 docker compose run --rm deployer npx hardhat run scripts/deployN2.js --network dockerN2
 
-# Servicios
 docker compose up -d relayer frontend
 ```
 
-- **Frontend**: http://localhost:3000
-- **L1 RPC**: http://localhost:8545
-- **L2 RPC**: http://localhost:9545
+Frontend en `http://localhost:3000`, RPCs en `:8545` (L1) y `:9545` (L2).
 
-## Contratos
+---
 
-| Contrato | Descripcion |
-|----------|-------------|
-| `GuaraniToken.sol` | Token ERC20 con mint/burn y roles |
-| `Sender.sol` | Bloquea tokens en L1, emite evento `Locked` |
-| `Receiver.sol` | Acuna tokens en L2 tras verificacion del relayer |
-| `Verifier.sol` | Verificacion criptografica adicional (opcional) |
-
-## Seguridad
-
-- **Nonce incremental**: Cada transferencia tiene un ID unico
-- **Replay protection**: Mapping de transacciones procesadas previene duplicados
-- **Role-based access**: Solo el relayer autorizado puede acunar tokens
-
-## Scripts Utiles
-
-```bash
-npm run compile          # Compilar contratos
-npm run deploy:n1        # Deploy en N1 (segun BRIDGE_ENV)
-npm run deploy:n2        # Deploy en N2 (segun BRIDGE_ENV)
-npm run relayer          # Iniciar relayer
-npm run config           # Generar config del frontend
-npm run frontend         # Servidor frontend en :3000
-
-npm test                 # Todos los tests
-npm run test:bridge      # Tests del puente
-```
-
-## MetaMask (modo local)
+## 7. MetaMask (modo local)
 
 | Red | RPC URL | Chain ID |
 |-----|---------|----------|
 | L1 Hardhat | http://localhost:8545 | 31337 |
-| L2 Anvil | http://localhost:9545 | 1338 |
+| L2 Anvil   | http://localhost:9545 | 1338 |
 
-Cuenta de prueba (pre-funded):
+Cuenta de prueba pre-funded:
+
 ```
 Private Key: 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 ```
 
-## Estructura del Proyecto
+---
+
+## 8. Estructura del proyecto
 
 ```
-guarani-bridge/
-├── contracts/           # Contratos Solidity
-├── scripts/             # Deploy y utilidades
-│   ├── deployN1.js      # Deploy L1
-│   ├── deployN2.js      # Deploy L2
-│   └── resolve-network.js  # Resuelve red segun BRIDGE_ENV
-├── relayer/             # Servicio relayer (Node.js)
-├── public/              # Frontend web
-├── utils/               # Utilidades (accounts, etc.)
-├── bridge-env.js        # Configuracion centralizada local/testnet
-├── hardhat.config.js    # Config de Hardhat (redes dinamicas)
-├── deploy-N1.json       # Direcciones desplegadas en N1 (generado)
-├── deploy-N2.json       # Direcciones desplegadas en N2 (generado)
-└── bridge-config.json   # Config del frontend (generado)
+zk-guarani-bridge/
+├── contracts/                 # Contratos Solidity
+│   ├── GuaraniToken.sol       # ERC20 con mint/burn y roles
+│   ├── Sender.sol             # Bloquea tokens en L1
+│   ├── Receiver.sol           # Mintea en L2 tras verificar prueba ZK
+│   └── Groth16Verifier.sol    # ⚙ generado por snarkjs (no versionado)
+├── circom/
+│   ├── verify_header/         # Circuito principal del light client
+│   │   ├── verify_header.circom
+│   │   ├── input.json         # ⚙ generado por relayer / fixture
+│   │   ├── *.r1cs *.wasm *.sym *.zkey  # ⚙ generados (no versionados)
+│   │   ├── proof.json public.json verification_key.json  # ⚙ generados
+│   │   └── verify_header_js/  # ⚙ generado
+│   └── utils/                 # Helpers Circom (Poseidon, sha256, BLS)
+├── scripts/                   # Deploy y utilidades de testing
+│   ├── deployN1.js / deployN2.js
+│   ├── lockTokens.js / mintTokens.js / approveTokens.js
+│   └── resolve-network.js / generate-config.js
+├── relayer/                   # Relayer Node.js (escucha + genera proofs)
+├── generate_data/             # Fetch beacon data + transformer a input.json
+├── public/                    # Frontend web
+├── test/                      # Tests Hardhat + ZK
+├── bridge-env.js              # Configuración local/testnet
+├── hardhat.config.js
+├── deploy-N1.json             # ⚙ generado por deploy:n1
+├── deploy-N2.json             # ⚙ generado por deploy:n2
+├── bridge-config*.json        # ⚙ generados por deploy/config
+├── accounts.json              # ⚙ generado en local
+└── .env / .env.example
 ```
 
-## Troubleshooting
+⚙ = generado, **no se versiona** (ver `.gitignore`).
 
-**"Contract not found" en el frontend**: Los contratos no estan desplegados. Ejecutar `npm run deploy:n1` y `npm run deploy:n2`.
+---
 
-**"Internal JSON-RPC error"**: Problemas de nonce o falta de tokens. Resetear cuenta en MetaMask y/o mintear tokens.
+## 9. Troubleshooting
 
-**Relayer no procesa eventos**: Verificar que el relayer esta corriendo y que las direcciones en `deploy-N1.json` / `deploy-N2.json` son correctas.
+| Síntoma | Causa probable | Solución |
+|---------|----------------|----------|
+| `Error: Contract Groth16Verifier not found` al hacer `deploy:n2` | Falta el verifier generado | Correr el paso **2.5** (export solidityverifier) y luego `npm run compile` |
+| `ENOENT verify_header.wasm` o `.zkey` | Circuito no compilado / sin trusted setup | Correr pasos **2.4** y **2.5** |
+| Relayer: `No pude leer deploy-N1.json` | No se hizo deploy todavía | Correr `npm run deploy:n1` y `npm run deploy:n2` |
+| Tests ZK aparecen como `pending` (skipped) | Faltan `wasm`/`zkey`/`input.json` | Completar paso **2** |
+| `Internal JSON-RPC error` en MetaMask | Nonce desincronizado o sin tokens | Reset account en MetaMask y/o `mintTokens.js` |
+| Relayer no procesa `Locked` | Direcciones desactualizadas | Re-deployar y reiniciar el relayer |
+| `Frontend: Contract not found` | Falta `bridge-config.json` | `npm run config` |
+
+---
+
+## 10. Seguridad
+
+- **Nonce incremental**: cada transferencia tiene un ID único.
+- **Replay protection**: mapping de transacciones procesadas evita duplicados.
+- **Role-based access**: solo el relayer autorizado puede minar en L2.
+- **Verificación ZK on-chain**: `Receiver` exige una prueba Groth16 válida del circuito `VerifyHeaderMock` antes de mintear.

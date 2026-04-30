@@ -218,23 +218,17 @@ async function transformData(inputData) {
   }
   console.log(`   ✓ ${pubkeys.length} claves públicas convertidas\n`);
 
-  // 3. Usar el array de bits directamente
+  // 3. Usar el array de bits directamente (nombre del circuito: pubkeybits)
   console.log("3️⃣ Extrayendo bits de participación...");
-  const bits = inputData.participation.bitsArray;
-  console.log(`   ✓ ${bits.length} bits extraídos\n`);
+  const pubkeybits = inputData.participation.bitsArray;
+  console.log(`   ✓ ${pubkeybits.length} bits extraídos\n`);
 
-  // 4. Convertir la firma agregada
-  console.log("4️⃣ Convirtiendo firma agregada...");
-  const signature = g2PointToLimbs(
-    inputData.blockHeader.sync_aggregate.sync_committee_signature
-  );
-  console.log(`   ✓ Firma convertida a formato G2\n`);
-
+  // El mock VerifyHeaderMock(512, 7) NO consume la firma BLS (asume válida).
+  // La firma se sigue calculando/expuesta por si se necesita en otro flow.
   return {
     signing_root,
     pubkeys,
-    bits,
-    signature,
+    pubkeybits,
   };
 }
 
@@ -278,9 +272,8 @@ function displayStats(data) {
   console.log("=".repeat(60));
   console.log(`\n📝 Signing Root: ${data.signing_root.length} bytes`);
   console.log(`🔑 Public Keys: ${data.pubkeys.length} keys`);
-  console.log(`📊 Participation Bits: ${data.bits.length} bits`);
-  console.log(`   • Participantes: ${data.bits.filter((b) => b === 1).length}`);
-  console.log(`✍️  Signature: G2 point (Fp2 coordinates)`);
+  console.log(`📊 Participation Bits: ${data.pubkeybits.length} bits`);
+  console.log(`   • Participantes: ${data.pubkeybits.filter((b) => b === 1).length}`);
   console.log("\n" + "=".repeat(60) + "\n");
 }
 

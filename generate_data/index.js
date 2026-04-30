@@ -22,6 +22,7 @@ const CONFIG = {
   OUTPUT_FILE: process.env.OUTPUT_FILE || "data.json",
   CIRCOM_OUTPUT_FILE: process.env.CIRCOM_OUTPUT_FILE || "circom_input.json",
   SYNC_COMMITTEE_SIZE: 512,
+  BEACON_SEARCH_MAX_SLOTS: Number(process.env.BEACON_SEARCH_MAX_SLOTS || 128),
 };
 
 /**
@@ -55,13 +56,36 @@ class BeaconNodeClient {
     }
   }
 
+  async getBeaconHeader(blockId) {
+    const response = await this.fetch(`/eth/v1/beacon/headers/${blockId}`);
+    return {
+      root: response.data.root,
+      canonical: response.data.canonical,
+      slot: response.data.header.message.slot,
+      proposer_index: response.data.header.message.proposer_index,
+      parent_root: response.data.header.message.parent_root,
+      state_root: response.data.header.message.state_root,
+      body_root: response.data.header.message.body_root,
+    };
+  }
+
   /**
    * Obtiene el block root del bloque finalizado más reciente
    * @returns {Promise<string>} - Block root en formato hexadecimal
    */
   async getBlockRoot() {
-    const data = await this.fetch("/eth/v1/beacon/headers/finalized");
-    return data.data.root;
+    const data = await this.getBeaconHeader("finalized");
+    return data.root;
+  }
+
+  /**
+   * Obtiene el bloque beacon completo de un bloque específico
+   * @param {string} blockId - ID del bloque (root, slot, o 'finalized')
+   * @returns {Promise<Object>} - Datos completos del bloque
+   */
+  async getBlock(blockId) {
+    const response = await this.fetch(`/eth/v2/beacon/blocks/${blockId}`);
+    return response.data.message;
   }
 
   /**
@@ -70,28 +94,105 @@ class BeaconNodeClient {
    * @returns {Promise<Object>} - Datos del bloque incluyendo slot y sync_aggregate
    */
   async getBlockHeader(blockId) {
-    const response = await this.fetch(`/eth/v2/beacon/blocks/${blockId}`);
-    const { data } = response;
+    const data = await this.getBlock(blockId);
 
     return {
-      slot: data.message.slot,
-      proposer_index: data.message.proposer_index,
-      parent_root: data.message.parent_root,
-      state_root: data.message.state_root,
-      sync_aggregate: data.message.body.sync_aggregate,
+      slot: data.slot,
+      proposer_index: data.proposer_index,
+      parent_root: data.parent_root,
+      state_root: data.state_root,
+      sync_aggregate: data.body.sync_aggregate,
+      execution_payload: data.body.execution_payload ?? null,
     };
   }
 
   /**
-   * Obtiene el comité de sincronización actual
-   * @param {string} blockId - ID del bloque
+   * Obtiene el comité de sincronización actual usando el endpoint de estados.
+   * A diferencia de /eth/v1/beacon/light_client/bootstrap/{blockRoot}, este
+   * endpoint no requiere que el bloque esté finalizado.
+   * @param {string|number} stateId - Slot, "head", "finalized", etc.
    * @returns {Promise<Object>} - Comité de sincronización con pubkeys y aggregate_pubkey
    */
-  async getSyncCommittee(blockId) {
-    const data = await this.fetch(
-      `/eth/v1/beacon/light_client/bootstrap/${blockId}`
+  async getSyncCommittee(stateId) {
+    // 1. Obtener índices de validadores del sync committee
+    const committeeData = await this.fetch(
+      `/eth/v1/beacon/states/${stateId}/sync_committees`
     );
-    return data.data.current_sync_committee;
+    const validatorIndices = committeeData.data.validators;
+
+    // 2. Obtener pubkeys — deduplicar índices para minimizar la consulta
+    const uniqueIndices = [...new Set(validatorIndices)];
+    const queryIds = uniqueIndices.join(",");
+    const validatorsData = await this.fetch(
+      `/eth/v1/beacon/states/${stateId}/validators?id=${queryIds}`
+    );
+
+    const indexToPubkey = {};
+    for (const v of validatorsData.data) {
+      indexToPubkey[v.index] = v.validator.pubkey;
+    }
+
+    // 3. Construir array de pubkeys en el orden original del sync committee
+    const pubkeys = validatorIndices.map((idx) => indexToPubkey[idx]);
+
+    return {
+      pubkeys,
+      aggregate_pubkey: null,
+    };
+  }
+
+  /**
+   * Busca el bloque beacon cuyo execution payload coincide con un block hash
+   * de la execution layer.
+   * @param {string} executionBlockHash - Hash del bloque de execution layer
+   * @param {number} maxLookbackSlots - Cantidad máxima de slots a revisar
+   * @returns {Promise<{blockRoot: string, beaconSlot: string, blockHeader: Object}>}
+   */
+  async findBeaconBlockByExecutionBlockHash(
+    executionBlockHash,
+    maxLookbackSlots = CONFIG.BEACON_SEARCH_MAX_SLOTS
+  ) {
+    const targetHash = executionBlockHash.toLowerCase();
+    const headHeader = await this.getBeaconHeader("head");
+    const headSlot = Number(headHeader.slot);
+    const minSlot = Math.max(0, headSlot - maxLookbackSlots);
+
+    console.log(
+      `🔎 Buscando beacon block para execution block ${executionBlockHash} entre slots ${minSlot} y ${headSlot}...`
+    );
+
+    for (let slot = headSlot; slot >= minSlot; slot--) {
+      try {
+        const block = await this.getBlock(String(slot));
+        const executionHash = block.body?.execution_payload?.block_hash?.toLowerCase();
+
+        if (executionHash === targetHash) {
+          const header = await this.getBeaconHeader(String(slot));
+          return {
+            blockRoot: header.root,
+            beaconSlot: header.slot,
+            blockHeader: {
+              slot: block.slot,
+              proposer_index: block.proposer_index,
+              parent_root: block.parent_root,
+              state_root: block.state_root,
+              sync_aggregate: block.body.sync_aggregate,
+              execution_payload: block.body.execution_payload ?? null,
+            },
+          };
+        }
+      } catch (error) {
+        // Algunos slots pueden estar vacíos o no disponibles; seguimos buscando.
+        const message = String(error?.message ?? "");
+        if (!message.includes("404")) {
+          console.log(`⚠️ Error revisando slot ${slot}: ${message}`);
+        }
+      }
+    }
+
+    throw new Error(
+      `No encontré un beacon block para execution block hash ${executionBlockHash} en los últimos ${maxLookbackSlots} slots`
+    );
   }
 }
 
@@ -176,17 +277,36 @@ function displaySummary(results) {
 /**
  * Obtiene la data cruda del beacon node (sync committee, header, participación)
  * @param {string} [beaconUrl] - URL del beacon node (default: CONFIG.BASE_URL)
+ * @param {Object} [options]
+ * @param {string} [options.transactionHash] - Hash de la transacción origen
+ * @param {string} [options.executionBlockHash] - Hash del bloque EL que contiene la transacción
  * @returns {Promise<Object>} - Data cruda del beacon node
  */
-async function fetchBeaconData(beaconUrl) {
+async function fetchBeaconData(beaconUrl, options = {}) {
   const client = new BeaconNodeClient(beaconUrl || CONFIG.BASE_URL);
+  const { transactionHash = null, executionBlockHash = null } = options;
 
   console.log("📡 Obteniendo data del beacon node...");
 
-  const blockRoot = await client.getBlockRoot();
-  console.log(`   Block Root: ${blockRoot}`);
+  let blockRoot;
+  let blockHeader;
 
-  const blockHeader = await client.getBlockHeader(blockRoot);
+  if (executionBlockHash) {
+    const matchedBlock = await client.findBeaconBlockByExecutionBlockHash(
+      executionBlockHash
+    );
+    blockRoot = matchedBlock.blockRoot;
+    blockHeader = matchedBlock.blockHeader;
+    console.log(`   Tx Hash: ${transactionHash ?? "(no provisto)"}`);
+    console.log(`   Execution Block Hash: ${executionBlockHash}`);
+    console.log(`   Beacon Slot: ${matchedBlock.beaconSlot}`);
+    console.log(`   Block Root: ${blockRoot}`);
+  } else {
+    blockRoot = await client.getBlockRoot();
+    console.log(`   Block Root: ${blockRoot}`);
+    blockHeader = await client.getBlockHeader(blockRoot);
+  }
+
   console.log(`   Slot: ${blockHeader.slot}`);
 
   const participation = calculateParticipation(
@@ -194,7 +314,7 @@ async function fetchBeaconData(beaconUrl) {
   );
   console.log(`   Participación: ${participation.participation}%`);
 
-  const syncCommittee = await client.getSyncCommittee(blockRoot);
+  const syncCommittee = await client.getSyncCommittee(blockHeader.slot);
   console.log(`   Claves del comité: ${syncCommittee.pubkeys.length}`);
 
   const validPublicKeys = filterParticipatingKeys(
@@ -205,6 +325,8 @@ async function fetchBeaconData(beaconUrl) {
 
   return {
     timestamp: new Date().toISOString(),
+    transactionHash,
+    executionBlockHash,
     blockRoot,
     blockHeader,
     participation,

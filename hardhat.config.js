@@ -6,7 +6,12 @@ console.log(`[hardhat] BRIDGE_ENV=${BRIDGE_ENV}`);
 const { n1, n2 } = bridgeConfig;
 
 export default {
-  solidity: "0.8.24",
+  solidity: {
+    version: "0.8.24",
+    settings: {
+      optimizer: { enabled: true, runs: 1 },
+    },
+  },
   networks: {
     // ── Redes dinámicas según BRIDGE_ENV ──
     [n1.networkName]: {

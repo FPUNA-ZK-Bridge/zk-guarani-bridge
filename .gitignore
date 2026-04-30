@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+**/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -19,8 +20,53 @@ cache/
 deps/
 states/
 
-# Config auto-generada
+# ─── Archivos generados por el deploy ──────────────
+# Direcciones de contratos desplegados (scripts/deployN1.js y deployN2.js)
+deploy-N1.json
+deploy-N2.json
+
+# Configuración del frontend (generada por deploy y scripts/generate-config.js)
+bridge-config.json
+bridge-config-*.json
+public/bridge-config.json
+public/bridge-config-*.json
 public/config.js
+
+# Cuentas locales generadas desde el mnemonic de Hardhat (solo modo local)
+accounts.json
+
+# ─── Verifier generado por snarkjs ──────────────────
+# Generado con: snarkjs zkey export solidityverifier
+contracts/Groth16Verifier.sol
+
+# ─── Artefactos de Circom / snarkjs ─────────────────
+# Compilación del circuito
+circom/**/*.r1cs
+circom/**/*.sym
+circom/**/*.wasm
+circom/**/witness_calculator.js
+circom/**/generate_witness.js
+circom/**/*_js/
+circom/**/*_cpp/
+
+# Trusted setup (Powers of Tau y zkeys)
+circom/**/*.ptau
+circom/**/*.zkey
+
+# Outputs de prueba (witness, proof, public signals, verification key)
+circom/**/witness.wtns
+circom/**/proof.json
+circom/**/public.json
+circom/**/verification_key.json
+
+# Inputs/fixtures generados desde el beacon node (no se versionan)
+circom/verify_header/input.json
+circom/verify_header/beacon_data.json
+input.json
+
+# ─── Datos generados por generate_data ──────────────
+generate_data/data.json
+generate_data/circom_input.json
 
 # Environment variables
 .env
@@ -39,14 +85,14 @@ pids
 *.seed
 *.pid.lock
 
-# Coverage directory used by tools like istanbul
+# Coverage
 coverage/
 *.lcov
 
 # TypeScript
 *.tsbuildinfo
 
-# Optional npm cache directory
+# Optional npm cache
 .npm
 
 # Optional eslint cache
@@ -70,3 +116,6 @@ deployments/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Archivos sueltos / scratch
+asdas
