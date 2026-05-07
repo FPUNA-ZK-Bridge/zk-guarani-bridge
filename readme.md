@@ -193,93 +193,8 @@ Las cuentas locales (deployer, relayer, usuarios) se derivan automáticamente de
 npm run frontend          # http://localhost:3000
 ```
 
-### Probar una transferencia desde scripts
 
-Con el relayer corriendo en otra terminal:
-
-```bash
-# Mintear tokens al usuario en N1
-npx hardhat run scripts/mintTokens.js --network localN1
-
-# Aprobar al Sender
-npx hardhat run scripts/approveTokens.js --network localN1
-
-# Hacer lock → dispara el flujo del bridge
-npx hardhat run scripts/lockTokens.js --network localN1
-
-# Verificar balances
-npx hardhat run scripts/checkBalance.js --network localN1
-npx hardhat run scripts/checkBalance.js --network localN2
-```
-
-El relayer detectará el evento `Locked`, generará la prueba ZK con el circuito y llamará a `mintRemote()` en N2.
-
----
-
-## 4. Tests automatizados
-
-```bash
-# Tests del bridge (incluye verificación de prueba ZK on-chain si los artefactos existen)
-npm run test:bridge
-
-# Tests de infraestructura
-npm run test:infra
-
-# Todos
-npm run test:all
-```
-
-> Los tests que requieren prueba ZK (`describeProof`) **se saltan automáticamente** si faltan `verify_header.wasm`, `verify_header_0001.zkey` o `circom/verify_header/input.json`. Completá el paso 2 si querés ejecutarlos.
-
----
-
-## 5. Modo testnet (Ephemery + BlockDAG)
-
-```bash
-# 1) Cambiar en .env
-BRIDGE_ENV=testnet
-
-# 2) Completar las private keys requeridas
-EPHEMERY_RPC_URL=...
-EPHEMERY_PRIVATE_KEY=...
-BLOCKDAG_RPC_URL=...
-BLOCKDAG_PRIVATE_KEY=...
-PRIVATE_KEY_RELAYER=...
-RELAYER_ADDRESS=0x...
-
-# 3) Deploy y relayer (no se levantan nodos locales)
-npm run deploy:n1
-npm run deploy:n2
-npm run relayer
-```
-
-| Variable | Descripción |
-|----------|-------------|
-| `BRIDGE_ENV` | `local` o `testnet` — única variable que cambia el entorno |
-| `EPHEMERY_RPC_URL` / `EPHEMERY_PRIVATE_KEY` | Conexión a Ephemery (L1 testnet) |
-| `BLOCKDAG_RPC_URL` / `BLOCKDAG_PRIVATE_KEY` | Conexión a BlockDAG (L2 testnet) |
-| `PRIVATE_KEY_RELAYER` / `RELAYER_ADDRESS` | Relayer en testnet |
-| `BEACON_NODE_URL` | URL del beacon node (default `http://localhost:5052`) — usado por el relayer para construir `input.json` |
-
----
-
-## 6. Docker Compose (alternativa)
-
-```bash
-docker compose build
-docker compose up -d hardhat-n1 anvil-n2
-
-docker compose run --rm deployer npx hardhat run scripts/deployN1.js --network dockerN1
-docker compose run --rm deployer npx hardhat run scripts/deployN2.js --network dockerN2
-
-docker compose up -d relayer frontend
-```
-
-Frontend en `http://localhost:3000`, RPCs en `:8545` (L1) y `:9545` (L2).
-
----
-
-## 7. MetaMask (modo local)
+## 4. MetaMask (modo local)
 
 | Red | RPC URL | Chain ID |
 |-----|---------|----------|
@@ -294,7 +209,7 @@ Private Key: 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 
 ---
 
-## 8. Estructura del proyecto
+## 5. Estructura del proyecto
 
 ```
 zk-guarani-bridge/
@@ -332,7 +247,7 @@ zk-guarani-bridge/
 
 ---
 
-## 9. Troubleshooting
+## 6. Troubleshooting
 
 | Síntoma | Causa probable | Solución |
 |---------|----------------|----------|
