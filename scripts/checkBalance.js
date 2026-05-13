@@ -630,19 +630,17 @@ async function main() {
     console.log("💎", ethers.formatUnits(balance, decimals), symbol);
     
     if (balance === 0n) {
-      console.log("\n⚠️  Balance cero. Para obtener tokens:");
+      console.log("\n⚠️  Balance cero.");
       if (network === "1") {
-        console.log("   Ejecuta: node scripts/mintTokens.js");
+        console.log("   El deployer recibe 1M GUA al desplegar el token (npm run deploy:n1).");
       } else {
-        console.log("   Haz bridge desde L1 o mint desde L2");
+        console.log("   Haz bridge desde L1 para recibir tokens en L2.");
       }
     }
-    
+
   } catch (error) {
     console.error("❌ Error:", error.message);
   }
 }
 
-main().catch(console.error); 
-
-implementacion vanilla en python o rust 
+main().catch(console.error);

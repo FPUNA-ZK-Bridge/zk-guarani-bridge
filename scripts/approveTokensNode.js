@@ -4,7 +4,7 @@ import accountManager from "../utils/accounts.js";
 
 async function main() {
   // Cargar configuración de contratos
-  const l1Config = JSON.parse(readFileSync("deploy-l1.json", "utf8"));
+  const l1Config = JSON.parse(readFileSync("deploy-N1.json", "utf8"));
   
   // Usar el account manager para obtener el deployer
   const deployer = accountManager.getDeployerSigner("http://127.0.0.1:8545");

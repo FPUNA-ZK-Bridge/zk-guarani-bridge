@@ -22,10 +22,6 @@ npm run deploy:n1
 echo "📦 Deploying Receiver to L2..."
 npm run deploy:n2
 
-# Generate config if needed
-echo "⚙️ Generating configuration..."
-npm run config
-
 echo "✅ Deployment complete!"
 echo ""
 echo "📄 Deployment files:"

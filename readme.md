@@ -178,9 +178,6 @@ npm run deploy:n1
 # Despliega Token + Verifier + Receiver en N2 y guarda direcciones en deploy-N2.json
 npm run deploy:n2
 
-# Genera la config del frontend desde deploy-*.json
-npm run config
-
 # Inicia el relayer (escucha eventos Locked en N1 y mintea en N2 con prueba ZK)
 npm run relayer
 ```
@@ -195,21 +192,18 @@ npm run frontend          # http://localhost:3000
 
 ### Probar una transferencia desde scripts
 
-Con el relayer corriendo en otra terminal:
+El deployer recibe 1.000.000 GUA al desplegar el token, así que no hace falta mintear nada extra. Con el relayer corriendo en otra terminal:
 
 ```bash
-# Mintear tokens al usuario en N1
-npx hardhat run scripts/mintTokens.js --network localN1
-
-# Aprobar al Sender
-npx hardhat run scripts/approveTokens.js --network localN1
+# Aprobar al Sender que gaste tokens del deployer
+node scripts/approveTokensNode.js
 
 # Hacer lock → dispara el flujo del bridge
-npx hardhat run scripts/lockTokens.js --network localN1
+node scripts/lockTokens.js
 
-# Verificar balances
-npx hardhat run scripts/checkBalance.js --network localN1
-npx hardhat run scripts/checkBalance.js --network localN2
+# Verificar balances (uso: <direccion> <red 1|2>)
+node scripts/checkBalance.js 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 1
+node scripts/checkBalance.js 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 2
 ```
 
 El relayer detectará el evento `Locked`, generará la prueba ZK con el circuito y llamará a `mintRemote()` en N2.
@@ -219,14 +213,7 @@ El relayer detectará el evento `Locked`, generará la prueba ZK con el circuito
 ## 4. Tests automatizados
 
 ```bash
-# Tests del bridge (incluye verificación de prueba ZK on-chain si los artefactos existen)
-npm run test:bridge
-
-# Tests de infraestructura
-npm run test:infra
-
-# Todos
-npm run test:all
+npm test
 ```
 
 > Los tests que requieren prueba ZK (`describeProof`) **se saltan automáticamente** si faltan `verify_header.wasm`, `verify_header_0001.zkey` o `circom/verify_header/input.json`. Completá el paso 2 si querés ejecutarlos.
@@ -313,8 +300,8 @@ zk-guarani-bridge/
 │   └── utils/                 # Helpers Circom (Poseidon, sha256, BLS)
 ├── scripts/                   # Deploy y utilidades de testing
 │   ├── deployN1.js / deployN2.js
-│   ├── lockTokens.js / mintTokens.js / approveTokens.js
-│   └── resolve-network.js / generate-config.js
+│   ├── lockTokens.js / approveTokensNode.js / checkBalance.js
+│   └── resolve-network.js / docker-setup.sh / docker-deploy.sh
 ├── relayer/                   # Relayer Node.js (escucha + genera proofs)
 ├── generate_data/             # Fetch beacon data + transformer a input.json
 ├── public/                    # Frontend web
@@ -323,7 +310,7 @@ zk-guarani-bridge/
 ├── hardhat.config.js
 ├── deploy-N1.json             # ⚙ generado por deploy:n1
 ├── deploy-N2.json             # ⚙ generado por deploy:n2
-├── bridge-config*.json        # ⚙ generados por deploy/config
+├── bridge-config.json         # ⚙ generado por deploy:n1 y deploy:n2 (raíz y public/)
 ├── accounts.json              # ⚙ generado en local
 └── .env / .env.example
 ```
@@ -340,9 +327,9 @@ zk-guarani-bridge/
 | `ENOENT verify_header.wasm` o `.zkey` | Circuito no compilado / sin trusted setup | Correr pasos **2.4** y **2.5** |
 | Relayer: `No pude leer deploy-N1.json` | No se hizo deploy todavía | Correr `npm run deploy:n1` y `npm run deploy:n2` |
 | Tests ZK aparecen como `pending` (skipped) | Faltan `wasm`/`zkey`/`input.json` | Completar paso **2** |
-| `Internal JSON-RPC error` en MetaMask | Nonce desincronizado o sin tokens | Reset account en MetaMask y/o `mintTokens.js` |
+| `Internal JSON-RPC error` en MetaMask | Nonce desincronizado o sin tokens | Reset account en MetaMask y/o re-deployar |
 | Relayer no procesa `Locked` | Direcciones desactualizadas | Re-deployar y reiniciar el relayer |
-| `Frontend: Contract not found` | Falta `bridge-config.json` | `npm run config` |
+| `Frontend: Contract not found` | Falta `bridge-config.json` | Re-correr `npm run deploy:n1` y `npm run deploy:n2` |
 
 ---
 
