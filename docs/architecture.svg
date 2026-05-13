@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 940" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="14">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a5568"/>
+    </marker>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2b6cb0"/>
+    </marker>
+  </defs>
+
+  <!-- Full-canvas background — keeps the diagram readable on both light and dark page themes -->
+  <rect x="0" y="0" width="1240" height="940" fill="#ffffff"/>
+
+  <!-- ============ Background subgraphs ============ -->
+  <!-- N1 group -->
+  <rect x="50" y="240" width="430" height="320" rx="8" fill="#eaf3fb" stroke="#4a90e2" stroke-width="2"/>
+  <text x="70" y="266" font-size="16" font-weight="700" fill="#2b6cb0">L1 — Red N1 (origen)</text>
+
+  <!-- N2 group -->
+  <rect x="660" y="240" width="530" height="460" rx="8" fill="#eaf7ec" stroke="#52a868" stroke-width="2"/>
+  <text x="680" y="266" font-size="16" font-weight="700" fill="#2f7a3b">L2 — Red N2 (destino)</text>
+
+  <!-- Off-chain prover group -->
+  <rect x="120" y="790" width="380" height="130" rx="8" fill="#fff6e0" stroke="#d39a2f" stroke-width="2"/>
+  <text x="140" y="816" font-size="15" font-weight="700" fill="#8a6017">Off-chain prover (backend)</text>
+
+  <!-- ============ Top-level actors ============ -->
+  <!-- Usuario -->
+  <rect x="540" y="30" width="160" height="50" rx="6" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+  <text x="620" y="60" text-anchor="middle" fill="#2c3e50" font-weight="600">👤 Usuario</text>
+
+  <!-- arrow Usuario → Frontend -->
+  <path d="M 620 80 L 620 130" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+
+  <!-- Frontend -->
+  <rect x="510" y="130" width="220" height="55" rx="6" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+  <text x="620" y="163" text-anchor="middle" fill="#2c3e50" font-weight="600">Frontend / dApp</text>
+
+  <!-- 1. lock → Sender -->
+  <path d="M 565 185 L 565 210 L 265 210 L 265 430" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="290" y="203" fill="#c0392b" font-weight="700" font-size="13">1.</text>
+  <text x="310" y="203" fill="#2c3e50" font-size="13">lock(recipientL2, amount)</text>
+
+  <!-- 6. event Minted → Frontend -->
+  <path d="M 905 290 L 905 215 L 730 215 L 730 158" stroke="#4a5568" stroke-width="1.5" fill="none" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+  <text x="755" y="208" fill="#c0392b" font-weight="700" font-size="13">6.</text>
+  <text x="775" y="208" fill="#2c3e50" font-size="13">event Minted (id, to, amount)</text>
+
+  <!-- ============ N1 contents ============ -->
+  <!-- GuaraniToken N1 -->
+  <rect x="105" y="300" width="320" height="55" rx="6" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+  <text x="265" y="333" text-anchor="middle" fill="#2c3e50" font-weight="600">GuaraniToken (ERC20)</text>
+
+  <!-- approve arrow (Sender → Token, upward) -->
+  <path d="M 265 430 L 265 357" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="278" y="396" fill="#2c3e50" font-size="13">approve(Sender, amount)</text>
+
+  <!-- Sender -->
+  <rect x="105" y="430" width="320" height="55" rx="6" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+  <text x="265" y="463" text-anchor="middle" fill="#2c3e50" font-weight="600">Sender</text>
+
+  <!-- 2. event Locked → Relayer -->
+  <path d="M 265 485 L 265 620" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="278" y="545" fill="#c0392b" font-weight="700" font-size="13">2.</text>
+  <text x="298" y="545" fill="#2c3e50" font-size="13">event Locked</text>
+  <text x="278" y="562" fill="#666" font-size="12">(id, from, to, amount)</text>
+
+  <!-- ============ Relayer ============ -->
+  <rect x="120" y="620" width="290" height="100" rx="8" fill="#f5e9ff" stroke="#8e44ad" stroke-width="2"/>
+  <text x="265" y="650" text-anchor="middle" fill="#5e3370" font-weight="700" font-size="16">🛰  RELAYER</text>
+  <text x="265" y="675" text-anchor="middle" fill="#5e3370" font-size="12">(off-chain, fuera del</text>
+  <text x="265" y="691" text-anchor="middle" fill="#5e3370" font-size="12">trust boundary)</text>
+
+  <!-- 3. input.json → prover -->
+  <path d="M 200 720 L 200 790" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="65" y="755" fill="#c0392b" font-weight="700" font-size="13">3.</text>
+  <text x="85" y="755" fill="#2c3e50" font-size="13">input.json</text>
+
+  <!-- 4. proof + publicSignals → relayer -->
+  <path d="M 340 790 L 340 720" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="355" y="755" fill="#c0392b" font-weight="700" font-size="13">4.</text>
+  <text x="375" y="755" fill="#2c3e50" font-size="13">proof + publicSignals</text>
+
+  <!-- 5. mintRemote → Receiver -->
+  <path d="M 410 660 L 660 320" stroke="#2b6cb0" stroke-width="2" fill="none" marker-end="url(#arrow-blue)"/>
+  <text x="430" y="500" fill="#c0392b" font-weight="700" font-size="13">5.</text>
+  <text x="450" y="500" fill="#2b6cb0" font-weight="600" font-size="13">mintRemote(pA, pB, pC, pubSignals)</text>
+
+  <!-- ============ Off-chain prover contents ============ -->
+  <text x="145" y="845" fill="#2c3e50" font-size="13">• Beacon node (Lighthouse / Nimbus)</text>
+  <text x="145" y="870" fill="#2c3e50" font-size="13">• Circom — VerifyHeaderMock(512, 7)</text>
+  <text x="145" y="895" fill="#2c3e50" font-size="13">• snarkjs — groth16 prove</text>
+
+  <!-- ============ N2 contents ============ -->
+  <!-- Receiver -->
+  <rect x="775" y="290" width="280" height="55" rx="6" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+  <text x="915" y="323" text-anchor="middle" fill="#2c3e50" font-weight="600">Receiver</text>
+
+  <!-- verifyProof arrow Receiver → Verifier -->
+  <path d="M 830 345 L 830 460" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="700" y="408" fill="#2c3e50" font-size="13">verifyProof(pA, pB, pC, pub)</text>
+
+  <!-- Groth16Verifier -->
+  <rect x="690" y="460" width="280" height="55" rx="6" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+  <text x="830" y="493" text-anchor="middle" fill="#2c3e50" font-weight="600">Groth16Verifier</text>
+  <text x="830" y="535" text-anchor="middle" fill="#666" font-size="12">(generado por snarkjs)</text>
+
+  <!-- mint arrow Receiver → ERC20 N2 -->
+  <path d="M 1000 345 L 1000 580" stroke="#4a5568" stroke-width="1.5" fill="none" marker-end="url(#arrow)"/>
+  <text x="1010" y="430" fill="#2c3e50" font-size="13">mint(to, amount)</text>
+  <text x="1010" y="448" fill="#666" font-size="12">(si la prueba</text>
+  <text x="1010" y="464" fill="#666" font-size="12">se verifica)</text>
+
+  <!-- GuaraniToken N2 -->
+  <rect x="860" y="580" width="280" height="55" rx="6" fill="#ffffff" stroke="#2c3e50" stroke-width="1.5"/>
+  <text x="1000" y="613" text-anchor="middle" fill="#2c3e50" font-weight="600">GuaraniToken (ERC20)</text>
+</svg>

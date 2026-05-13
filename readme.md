@@ -55,60 +55,9 @@ Este repositorio es el **prototipo de referencia** del proyecto de investigació
 
 ## 🌉 Arquitectura del bridge
 
-```text
-                                       ┌──────────────────────┐
-                                       │       Usuario        │
-                                       └──────────┬───────────┘
-                                                  │
-                                       ┌──────────▼───────────┐ ◄─── 6. event Minted ─────┐
-                                       │   Frontend / dApp    │                             │
-                                       └──────────┬───────────┘                             │
-                                                  │ 1. lock(recipientL2, amount)            │
-                                                  ▼                                          │
-   L1 (Chain N1)                                                                             │
-   ┌──────────────────────────────────┐                                                      │
-   │                                  │                                                      │
-   │   ┌──────────────────────────┐   │                                                      │
-   │   │  GuaraniToken (ERC20)    │   │                                                      │
-   │   └─────────────▲────────────┘   │                                                      │
-   │                 │ approve(Sender, amount)                                                │
-   │   ┌─────────────┴────────────┐   │                                                      │
-   │   │         Sender           │   │                                                      │
-   │   └─────────────┬────────────┘   │                                                      │
-   │                 │ 2. event Locked                                                        │
-   └─────────────────┼────────────────┘                                                      │
-                     ▼                                                                        │
-            ┌──────────────────────────┐                                                      │
-            │        RELAYER            │── 5. mintRemote(pA, pB, pC, pubSignals) ───┐        │
-            │  (off-chain, fuera del   │                                              │        │
-            │   trust boundary)         │                                              │        │
-            └──────┬───────────▲───────┘                                              │        │
-                   │           │                                                       │        │
-      3. input.json│           │ 4. proof + publicSignals                              │        │
-                   ▼           │                                                       │        │
-            ┌──────────────────────────┐                                              │        │
-            │   Off-chain prover        │                                              │        │
-            │   • Beacon node           │                                              │        │
-            │   • Circom                │                                              │        │
-            │     VerifyHeaderMock      │                                              │        │
-            │   • snarkjs groth16 prove │                                              │        │
-            └──────────────────────────┘                                              │        │
-                                                                                      ▼        │
-   L2 (Chain N2)                                                                               │
-   ┌──────────────────────────────────────┐                                                    │
-   │                                      │                                                    │
-   │   ┌──────────────────────────┐       │                                                    │
-   │   │       Receiver           │       │                                                    │
-   │   └──┬────────────────┬──────┘       │                                                    │
-   │      │ verifyProof()  │ mint(to, amount) (si la prueba se verifica)                       │
-   │      ▼                ▼              │                                                    │
-   │   ┌──────────────┐ ┌──────────────────────┐                                              │
-   │   │ Groth16      │ │ GuaraniToken (ERC20) │                                              │
-   │   │  Verifier    │ └──────────────────────┘                                              │
-   │   └──────────────┘            │                                                          │
-   │                               └────── emite event Minted ───────────────────────────────┘
-   └──────────────────────────────────────┘
-```
+<p align="center">
+  <img src="docs/architecture.svg" alt="Arquitectura del bridge — flujo lock-and-mint con verificación Groth16" width="900">
+</p>
 
 ### Flujo de una transferencia
 
