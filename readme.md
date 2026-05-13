@@ -1,21 +1,74 @@
-# Guarani Bridge
+<div align="center">
 
-Puente de tokens descentralizado que transfiere **GuaraniTokens** entre dos cadenas (L1 ↔ L2) usando el patrón **lock-and-mint**, con verificación de cabeceras del beacon chain mediante **pruebas Groth16** generadas por un circuito Circom (`VerifyHeaderMock(512, 7)`) y protección anti-replay.
+# 🌉 ZK Guarani Bridge
 
-```
-    L1 (Chain N1)                            L2 (Chain N2)
-    ┌─────────────────────────┐              ┌─────────────────────────┐
-    │  GuaraniToken            │              │  GuaraniToken            │
-    │  Sender Contract        │              │  Receiver + Verifier    │
-    └────────────┬────────────┘              └────────────▲────────────┘
-                 │                                        │
-                 │ 1. lock(recipient, amount)             │ 4. mintRemote(proof,...)
-                 │    emite "Locked"                      │    Verifier valida ZK proof
-                 │                                        │
-                 └──────────────┐                         │
-                                ▼                         │
-                       ┌─────────────────┐                │
-                       │    RELAYER      │────────────────┘
+### *Puente cross-chain con verificación Zero-Knowledge del estado de Ethereum*
+
+[![Status](https://img.shields.io/badge/Status-Research_Prototype-orange?style=flat-square)](#)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow?style=flat-square)](#-licencia)
+[![Circom](https://img.shields.io/badge/Circom-2.0+-1A73E8?style=flat-square)](https://docs.circom.io/)
+[![Solidity](https://img.shields.io/badge/Solidity-0.8.x-363636?style=flat-square&logo=solidity&logoColor=white)](https://soliditylang.org/)
+[![Hardhat](https://img.shields.io/badge/Hardhat-FFF100?style=flat-square&logo=hardhat&logoColor=black)](https://hardhat.org/)
+[![Foundry](https://img.shields.io/badge/Foundry-Anvil-363636?style=flat-square)](https://book.getfoundry.sh/)
+
+[**📋 Setup**](#-1-requisitos-previos) ·
+[**🚀 Quickstart**](#-3-probar-el-bridge-en-local) ·
+[**🏛 Arquitectura**](#%EF%B8%8F-decisiones-de-arquitectura) ·
+[**🔒 Seguridad**](#-10-seguridad) ·
+[**🐛 Troubleshooting**](#-9-troubleshooting)
+
+</div>
+
+---
+
+## 🎓 Sobre este proyecto
+
+Este repositorio es el **prototipo de referencia** del proyecto de investigación [**FPUNA-ZK-Bridge**](https://github.com/FPUNA-ZK-Bridge), desarrollado como parte de una tesis de grado en la **Facultad Politécnica – Universidad Nacional de Asunción (FP-UNA)**.
+
+`zk-guarani-bridge` implementa un puente de tokens entre dos cadenas (L1 ↔ L2) bajo el patrón **Lock-and-Mint**, donde la cadena destino verifica criptográficamente — vía una **prueba Groth16** — que el estado reportado por el relayer es genuino. La verificación se ancla a **cabeceras del beacon chain de Ethereum** mediante el circuito Circom `VerifyHeaderMock(512, 7)`.
+
+> 💡 **La tesis central:** *La cadena destino no necesita confiar en quién entregó la prueba — solo en la prueba misma.*
+
+### Repositorios relacionados en la organización
+
+| Componente | Repositorio | Rol |
+|---|---|---|
+| 🌉 **Bridge ZK (este)** | [`zk-guarani-bridge`](https://github.com/FPUNA-ZK-Bridge/zk-guarani-bridge) | Puente principal con verificación Groth16 |
+| 🪶 Bridge baseline | [`guarani-bridge-vanilla`](https://github.com/FPUNA-ZK-Bridge/guarani-bridge-vanilla) | Versión sin ZK — *baseline* de comparación |
+| 🛰️ Beacon data fetcher | [`ethereum-sync-committee-validator`](https://github.com/FPUNA-ZK-Bridge/ethereum-sync-committee-validator) | Construcción de `input.json` desde el beacon node |
+| 🔑 Verificación BLS | [`verify-headers`](https://github.com/FPUNA-ZK-Bridge/verify-headers) | PoC en Python de la verificación de firmas BLS del sync committee |
+| 🧪 Testnet local | [`ephemery-ethereum-testnet`](https://github.com/FPUNA-ZK-Bridge/ephemery-ethereum-testnet) | Nodo Ephemery dockerizado para testing realista |
+
+---
+
+## 🏛 Decisiones de arquitectura
+
+| Decisión | Justificación |
+|---|---|
+| **Lock-and-Mint** vs. burn-and-release | El patrón es más simple de auditar y permite implementación incremental. La cadena origen mantiene custodia; la destino solo emite tras verificación válida. |
+| **Circom + Groth16** vs. Noir/UltraHonk | Circom tiene un ecosistema maduro (`snarkjs`, ceremony pública de Hermez), verificador on-chain estándar y tooling estable. Noir queda como línea de investigación paralela para benchmarking. |
+| **Verificación de cabeceras** vs. light client completo | `VerifyHeaderMock(512, 7)` valida participación del sync committee sin reimplementar todo el protocolo de consenso — suficiente como base de seguridad y mantenible para una tesis. |
+| **Hardhat (L1) + Anvil (L2)** | Dos engines distintos garantizan que el código no se acopla a particularidades de un cliente; además permite simular cadenas con configuraciones independientes (chainId, mnemonic, gas). |
+| **Relayer fuera del trust boundary** | El relayer puede ser malicioso o caerse — la cadena destino solo acepta lo que la prueba ZK valida. Esto es lo que diferencia un *bridge ZK* de un *bridge multisig*. |
+
+---
+
+## 🌉 Arquitectura del bridge
+
+```text
+    L1 (Chain N1)                              L2 (Chain N2)
+    ┌─────────────────────────┐                ┌─────────────────────────┐
+    │  GuaraniToken (ERC20)   │                │  GuaraniToken (ERC20)   │
+    │  Sender Contract        │                │  Receiver + Verifier    │
+    └────────────┬────────────┘                └────────────▲────────────┘
+                 │                                          │
+                 │ 1. lock(recipient, amount)               │ 4. mintRemote(proof, ...)
+                 │    emite "Locked"                        │    Verifier valida ZK proof
+                 │                                          │
+                 └──────────────┐                           │
+                                ▼                           │
+                       ┌─────────────────┐                  │
+                       │    RELAYER      │──────────────────┘
                        │ 2. Escucha      │
                        │    "Locked"     │
                        │ 3. Genera ZK    │
@@ -23,18 +76,26 @@ Puente de tokens descentralizado que transfiere **GuaraniTokens** entre dos cade
                        └─────────────────┘
 ```
 
+### Flujo de una transferencia
+
+1. **Lock** — El usuario llama `lock(recipient, amount)` en el contrato `Sender` de L1. Los tokens quedan bloqueados y se emite el evento `Locked`.
+2. **Detección** — El relayer escucha el evento y obtiene la cabecera del beacon chain correspondiente (real, vía `ethereum-sync-committee-validator`, o un fixture en modo local).
+3. **Generación de la prueba** — El relayer ejecuta el circuito Circom `VerifyHeaderMock` con `snarkjs` para producir una prueba **Groth16**.
+4. **Verificación on-chain** — El relayer envía la prueba a `mintRemote()` en el `Receiver` de L2. El contrato `Groth16Verifier.sol` la valida.
+5. **Mint** — Si la prueba es válida y no fue procesada antes (anti-replay), el `Receiver` mintea el equivalente al destinatario en L2.
+
 ---
 
 ## 1. Requisitos previos
 
 | Dependencia | Versión recomendada | Para qué |
-|-------------|---------------------|----------|
-| Node.js     | ≥ 18                | Hardhat, relayer, frontend |
-| npm         | ≥ 9                 | Gestión de paquetes |
+|---|---|---|
+| Node.js | ≥ 18 | Hardhat, relayer, frontend |
+| npm | ≥ 9 | Gestión de paquetes |
 | Foundry (anvil) | última estable | Nodo L2 local (`npm run node:n2`) |
-| circom      | ≥ 2.0.3             | Compilar el circuito |
-| snarkjs     | ya viene como dep   | Trusted setup, generación y verificación de pruebas |
-| Beacon node (opcional) | Lighthouse / Nimbus | Para que el relayer obtenga `input.json` real. Si no hay, se usa el fixture en `circom/verify_header/input.json` |
+| circom | ≥ 2.0.3 | Compilar el circuito |
+| snarkjs | ya viene como dep | Trusted setup, generación y verificación de pruebas |
+| Beacon node *(opcional)* | Lighthouse / Nimbus | Para que el relayer obtenga `input.json` real. Si no hay, se usa el fixture en `circom/verify_header/input.json` |
 
 Instalar `circom` (una sola vez):
 
@@ -184,7 +245,7 @@ npm run relayer
 
 Las cuentas locales (deployer, relayer, usuarios) se derivan automáticamente del mnemonic de Hardhat — **no se necesitan private keys** ni configurar nada más.
 
-### Terminal 4 (opcional) — Frontend
+### Terminal 4 *(opcional)* — Frontend
 
 ```bash
 npm run frontend          # http://localhost:3000
@@ -241,7 +302,7 @@ npm run relayer
 ```
 
 | Variable | Descripción |
-|----------|-------------|
+|---|---|
 | `BRIDGE_ENV` | `local` o `testnet` — única variable que cambia el entorno |
 | `EPHEMERY_RPC_URL` / `EPHEMERY_PRIVATE_KEY` | Conexión a Ephemery (L1 testnet) |
 | `BLOCKDAG_RPC_URL` / `BLOCKDAG_PRIVATE_KEY` | Conexión a BlockDAG (L2 testnet) |
@@ -269,15 +330,17 @@ Frontend en `http://localhost:3000`, RPCs en `:8545` (L1) y `:9545` (L2).
 ## 7. MetaMask (modo local)
 
 | Red | RPC URL | Chain ID |
-|-----|---------|----------|
+|---|---|---|
 | L1 Hardhat | http://localhost:8545 | 31337 |
-| L2 Anvil   | http://localhost:9545 | 1338 |
+| L2 Anvil | http://localhost:9545 | 1338 |
 
 Cuenta de prueba pre-funded:
 
 ```
 Private Key: 0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 ```
+
+> ⚠️ **Solo para desarrollo local.** No usar nunca esta clave en testnet ni mainnet — es pública y compartida por cualquiera que use Hardhat.
 
 ---
 
@@ -322,7 +385,7 @@ zk-guarani-bridge/
 ## 9. Troubleshooting
 
 | Síntoma | Causa probable | Solución |
-|---------|----------------|----------|
+|---|---|---|
 | `Error: Contract Groth16Verifier not found` al hacer `deploy:n2` | Falta el verifier generado | Correr el paso **2.5** (export solidityverifier) y luego `npm run compile` |
 | `ENOENT verify_header.wasm` o `.zkey` | Circuito no compilado / sin trusted setup | Correr pasos **2.4** y **2.5** |
 | Relayer: `No pude leer deploy-N1.json` | No se hizo deploy todavía | Correr `npm run deploy:n1` y `npm run deploy:n2` |
@@ -335,7 +398,45 @@ zk-guarani-bridge/
 
 ## 10. Seguridad
 
-- **Nonce incremental**: cada transferencia tiene un ID único.
-- **Replay protection**: mapping de transacciones procesadas evita duplicados.
-- **Role-based access**: solo el relayer autorizado puede minar en L2.
-- **Verificación ZK on-chain**: `Receiver` exige una prueba Groth16 válida del circuito `VerifyHeaderMock` antes de mintear.
+El modelo de seguridad del bridge se basa en cuatro garantías:
+
+- 🔢 **Nonce incremental** — cada transferencia tiene un ID único monótonamente creciente.
+- 🛡️ **Replay protection** — un mapping de transacciones procesadas en `Receiver` evita que la misma prueba se use dos veces.
+- 🎭 **Role-based access** — solo el relayer autorizado puede invocar `mintRemote()` en L2.
+- ✅ **Verificación ZK on-chain** — `Receiver` exige una prueba **Groth16** válida del circuito `VerifyHeaderMock` antes de mintear. Sin prueba válida, no hay mint — punto.
+
+> ⚠️ **Limitaciones conocidas (este es un prototipo de investigación):**
+> - El circuito `VerifyHeaderMock` **no** valida la rotación completa del sync committee — esa es una de las líneas de trabajo abiertas.
+> - El trusted setup actual fue contribuido localmente con fines de testing. Para producción se requeriría una ceremony multi-party adecuada.
+> - El bridge **no ha sido auditado** y no está pensado para uso en producción ni con activos reales.
+
+---
+
+## 📚 Referencias
+
+- [Documentación de Circom 2](https://docs.circom.io/)
+- [snarkjs — toolkit Groth16/PLONK](https://github.com/iden3/snarkjs)
+- [Powers of Tau Ceremony (Hermez)](https://github.com/iden3/snarkjs#7-prepare-phase-2)
+- [Ethereum Light Client Specification](https://github.com/ethereum/consensus-specs/blob/dev/specs/altair/light-client/sync-protocol.md)
+- [Tornado Cash — Inspiración de patrones ZK on-chain](https://github.com/tornadocash/tornado-core)
+
+---
+
+## 📄 Licencia
+
+Este proyecto se distribuye bajo licencia **MIT**. Ver el archivo [`LICENSE`](LICENSE) para más detalles.
+
+---
+
+<div align="center">
+
+### 🎓 Facultad Politécnica – Universidad Nacional de Asunción
+
+*Investigación en Zero-Knowledge Bridges · Asunción, Paraguay*
+
+[![Universidad](https://img.shields.io/badge/FP--UNA-Investigación-blue?style=flat-square)](https://www.pol.una.py/)
+[![Org](https://img.shields.io/badge/Org-FPUNA--ZK--Bridge-green?style=flat-square)](https://github.com/FPUNA-ZK-Bridge)
+
+⭐ *Si te resulta útil para tu propia investigación, dale star — ayuda a que otros estudiantes lo encuentren.*
+
+</div>
