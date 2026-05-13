@@ -56,24 +56,58 @@ Este repositorio es el **prototipo de referencia** del proyecto de investigació
 ## 🌉 Arquitectura del bridge
 
 ```text
-    L1 (Chain N1)                              L2 (Chain N2)
-    ┌─────────────────────────┐                ┌─────────────────────────┐
-    │  GuaraniToken (ERC20)   │                │  GuaraniToken (ERC20)   │
-    │  Sender Contract        │                │  Receiver + Verifier    │
-    └────────────┬────────────┘                └────────────▲────────────┘
-                 │                                          │
-                 │ 1. lock(recipient, amount)               │ 4. mintRemote(proof, ...)
-                 │    emite "Locked"                        │    Verifier valida ZK proof
-                 │                                          │
-                 └──────────────┐                           │
-                                ▼                           │
-                       ┌─────────────────┐                  │
-                       │    RELAYER      │──────────────────┘
-                       │ 2. Escucha      │
-                       │    "Locked"     │
-                       │ 3. Genera ZK    │
-                       │    proof        │
-                       └─────────────────┘
+                                       ┌──────────────────────┐
+                                       │       Usuario        │
+                                       └──────────┬───────────┘
+                                                  │
+                                       ┌──────────▼───────────┐ ◄─── 6. event Minted ─────┐
+                                       │   Frontend / dApp    │                             │
+                                       └──────────┬───────────┘                             │
+                                                  │ 1. lock(recipientL2, amount)            │
+                                                  ▼                                          │
+   L1 (Chain N1)                                                                             │
+   ┌──────────────────────────────────┐                                                      │
+   │                                  │                                                      │
+   │   ┌──────────────────────────┐   │                                                      │
+   │   │  GuaraniToken (ERC20)    │   │                                                      │
+   │   └─────────────▲────────────┘   │                                                      │
+   │                 │ approve(Sender, amount)                                                │
+   │   ┌─────────────┴────────────┐   │                                                      │
+   │   │         Sender           │   │                                                      │
+   │   └─────────────┬────────────┘   │                                                      │
+   │                 │ 2. event Locked                                                        │
+   └─────────────────┼────────────────┘                                                      │
+                     ▼                                                                        │
+            ┌──────────────────────────┐                                                      │
+            │        RELAYER            │── 5. mintRemote(pA, pB, pC, pubSignals) ───┐        │
+            │  (off-chain, fuera del   │                                              │        │
+            │   trust boundary)         │                                              │        │
+            └──────┬───────────▲───────┘                                              │        │
+                   │           │                                                       │        │
+      3. input.json│           │ 4. proof + publicSignals                              │        │
+                   ▼           │                                                       │        │
+            ┌──────────────────────────┐                                              │        │
+            │   Off-chain prover        │                                              │        │
+            │   • Beacon node           │                                              │        │
+            │   • Circom                │                                              │        │
+            │     VerifyHeaderMock      │                                              │        │
+            │   • snarkjs groth16 prove │                                              │        │
+            └──────────────────────────┘                                              │        │
+                                                                                      ▼        │
+   L2 (Chain N2)                                                                               │
+   ┌──────────────────────────────────────┐                                                    │
+   │                                      │                                                    │
+   │   ┌──────────────────────────┐       │                                                    │
+   │   │       Receiver           │       │                                                    │
+   │   └──┬────────────────┬──────┘       │                                                    │
+   │      │ verifyProof()  │ mint(to, amount) (si la prueba se verifica)                       │
+   │      ▼                ▼              │                                                    │
+   │   ┌──────────────┐ ┌──────────────────────┐                                              │
+   │   │ Groth16      │ │ GuaraniToken (ERC20) │                                              │
+   │   │  Verifier    │ └──────────────────────┘                                              │
+   │   └──────────────┘            │                                                          │
+   │                               └────── emite event Minted ───────────────────────────────┘
+   └──────────────────────────────────────┘
 ```
 
 ### Flujo de una transferencia
