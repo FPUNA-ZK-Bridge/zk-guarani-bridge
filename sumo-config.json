@@ -1,0 +1,12 @@
+{
+  "buildDir": "auto",
+  "contractsDir": "contracts",
+  "testDir": "test",
+  "skipContracts": ["Groth16Verifier.sol", "IVerifier.sol", "test"],
+  "skipTests": [],
+  "testingFramework": "hardhat",
+  "minimalOperators": true,
+  "randomSampling": false,
+  "randomMutants": 100,
+  "testingTimeOutInSec": 120
+}
